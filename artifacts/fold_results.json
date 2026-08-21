@@ -1,0 +1,146 @@
+{
+  "fold0": {
+    "thresholds": {
+      "fpr0.1%": 0.9894716143608093,
+      "fpr1%": 0.8604591488838196
+    },
+    "test_seen": {
+      "n": 90900,
+      "n_pos": 40446,
+      "n_neg": 50454,
+      "auc": 0.9757255051296371,
+      "auprc": 0.9751321240921357,
+      "recall@fpr0.1%": 0.5656183553379815,
+      "fpr@fpr0.1%": 0.0009513616363420145,
+      "recall@fpr1%": 0.7832171290115215,
+      "fpr@fpr1%": 0.009513616363420145
+    },
+    "test_unseen": {
+      "n": 117953,
+      "n_pos": 67500,
+      "n_neg": 50453,
+      "auc": 0.994235325139422,
+      "auprc": 0.9960643091327415,
+      "recall@fpr0.1%": 0.776962962962963,
+      "fpr@fpr0.1%": 0.0009910213465998058,
+      "recall@fpr1%": 0.9356592592592593,
+      "fpr@fpr1%": 0.009652547915882109,
+      "per_family": {
+        "cryptolocker": {
+          "n": 13500,
+          "recall": 0.8384444444444444
+        },
+        "dircrypt": {
+          "n": 13500,
+          "recall": 0.788962962962963
+        },
+        "padcrypt": {
+          "n": 13500,
+          "recall": 0.6121481481481481
+        },
+        "ramnit": {
+          "n": 13500,
+          "recall": 0.770074074074074
+        },
+        "rovnix": {
+          "n": 13500,
+          "recall": 0.8751851851851852
+        }
+      }
+    },
+    "cross_source": {
+      "n": 154435,
+      "n_pos": 13655,
+      "n_neg": 140780,
+      "auc": 0.9632665831196584,
+      "auprc": 0.8721326109777802,
+      "recall@fpr0.1%": 0.5417063346759429,
+      "fpr@fpr0.1%": 0.0005753658190083818,
+      "recall@fpr1%": 0.7279384840717685,
+      "fpr@fpr1%": 0.00858786759482881,
+      "per_family": {
+        "banjori": {
+          "n": 1000,
+          "recall": 0.006
+        },
+        "bumblebee": {
+          "n": 100,
+          "recall": 0.3
+        },
+        "chinad": {
+          "n": 256,
+          "recall": 0.66015625
+        },
+        "darkcracks": {
+          "n": 31,
+          "recall": 0.9354838709677419
+        },
+        "m0yv": {
+          "n": 128,
+          "recall": 0.203125
+        },
+        "monerodownloader": {
+          "n": 500,
+          "recall": 0.052
+        },
+        "mydoom": {
+          "n": 99,
+          "recall": 0.3838383838383838
+        },
+        "newgoz": {
+          "n": 1000,
+          "recall": 0.872
+        },
+        "ngioweb": {
+          "n": 1024,
+          "recall": 0.0009765625
+        },
+        "proslikefan": {
+          "n": 100,
+          "recall": 0.27
+        },
+        "qakbot": {
+          "n": 5000,
+          "recall": 0.8262
+        },
+        "reconyc": {
+          "n": 100,
+          "recall": 0.25
+        },
+        "shiotob": {
+          "n": 2001,
+          "recall": 0.3953023488255872
+        },
+        "tempedreve": {
+          "n": 1746,
+          "recall": 0.43470790378006874
+        },
+        "tufik": {
+          "n": 510,
+          "recall": 0.9156862745098039
+        },
+        "unnamed_downloader": {
+          "n": 60,
+          "recall": 0.0
+        }
+      }
+    },
+    "ood": {
+      "auc": 0.5375992077227798,
+      "unseen_flagged_at_5pct_seen_fpr": 0.05828148148148148,
+      "median_seen_distance": 73.50128357354743,
+      "median_unseen_distance": 79.5264705031762
+    },
+    "meta": {
+      "fold": 0,
+      "holdout_families": [
+        "cryptolocker",
+        "dircrypt",
+        "padcrypt",
+        "ramnit",
+        "rovnix"
+      ],
+      "n_params": 96917
+    }
+  }
+}
