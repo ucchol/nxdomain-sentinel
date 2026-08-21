@@ -1,0 +1,21 @@
+# Corpora are cloned by scripts/build_dataset.py, never committed.
+# data/raw alone is ~76 MB of other people's repositories.
+data/raw/
+data/processed/
+
+# Model checkpoints. Small, but they are build output, not source.
+# The release workflow attaches them; git history should not carry them.
+artifacts/*.pt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Local
+.DS_Store
+.env
