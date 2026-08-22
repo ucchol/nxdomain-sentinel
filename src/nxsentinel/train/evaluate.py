@@ -114,8 +114,13 @@ def evaluate_fold(model, ood, split, cross) -> dict:
     for name, df in parts.items():
         scores = model.predict_proba(df["core"].tolist()).numpy()
         res[name] = binary_metrics(df["label"], scores, thresholds)
-        if name != "test_seen":
-            res[name]["per_family"] = per_family_recall(df, scores, thresholds["fpr0.1%"])
+        fam = per_family_recall(df, scores, thresholds["fpr0.1%"])
+        if name == "test_seen":
+            # Hoisted to the top level because the paired analysis reads it as
+            # the seen-side measurement for families this fold trained on.
+            res["test_seen_per_family"] = fam
+        else:
+            res[name]["per_family"] = fam
 
     seen = ood.score(
         collect_embeddings(model, split.extra["test_seen"].query("label == 1")["core"].tolist())

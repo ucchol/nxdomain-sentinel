@@ -1,0 +1,19 @@
+name: keepwarm
+
+# Cloud Run reclaims idle instances after roughly 15 minutes. A ping every 10
+# keeps one alive so visitors do not pay the cold start.
+#
+# The cost of this is negligible: ~4,300 requests/month against a 2,000,000
+# allowance, and because cpu_idle is set the instance bills no CPU while idle.
+# This is why min-instances stays at 0 rather than 1, which would cost ~$65/mo.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping healthz
+        run: curl -fsS --max-time 20 "${{ vars.SERVICE_URL }}/healthz"

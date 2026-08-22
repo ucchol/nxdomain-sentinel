@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # CPU wheel only. The default torch wheel is ~2.5 GB of CUDA that CI
+      # would download on every run for no benefit.
+      - name: Install
+        run: |
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            torch numpy pandas scikit-learn tldextract pyarrow
+          pip install pytest ruff fastapi "uvicorn[standard]" pydantic httpx
+
+      - name: Lint
+        run: ruff check src/ scripts/ tests/
+
+      - name: Test
+        run: python -m pytest tests/ -q
+
+      # Catches the failure mode where the image builds fine but the wheel
+      # selection silently pulls CUDA and the container stops fitting.
+      - name: Build image
+        run: |
+          mkdir -p artifacts && touch artifacts/serving_model.pt
+          docker build -t nxs:ci .
+          SIZE=$(docker image inspect nxs:ci --format='{{.Size}}')
+          echo "image size: $((SIZE/1024/1024)) MB"
+          test "$SIZE" -lt 900000000 || { echo "image exceeds 900 MB budget"; exit 1; }

@@ -1,0 +1,10 @@
+data/
+artifacts/*.pt
+!artifacts/serving_model.pt
+.git/
+tests/
+bench/
+infra/
+__pycache__/
+*.pyc
+.pytest_cache/
