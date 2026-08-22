@@ -1,132 +1,190 @@
 # nxdomain-sentinel
 
-A domain threat classifier that is scored on malware families it has never seen.
+A domain threat classifier that is scored on malware families it has never seen,
+and that reports how much that costs.
 
-Most published DGA detectors report accuracy above 0.99. That number is close to
-meaningless, because it is measured on a random shuffle where every malware
-family appears in both training and test. It answers "can you recognise a
-family you were trained on", which is a question a signature list already
-answers. The question a SOC actually has is whether the detector fires on a
-family that did not exist when the model was trained.
+Published DGA detectors routinely report accuracy above 0.99. That number is
+close to meaningless, because it is measured on a random shuffle where every
+malware family appears in both training and test. It answers "can you recognise
+a family you were trained on", which a signature list already answers. The
+question a SOC has is whether the detector fires on a family that did not exist
+when the model was trained.
 
-This repository is built to measure that second thing honestly, and to serve the
-result as a small, cheap, always-on API.
+This repository measures that, and the answer is not flattering to anybody.
 
-> **Status, August 2026.** Research phase. The data pipeline, model, and
-> evaluation harness are complete and tested. One of five folds is trained. The
-> serving layer, container, and deployment are not written yet. The
-> out-of-distribution gate currently performs at chance, which is documented
-> below rather than hidden. Do not read the numbers in this README as final.
-
----
-
-## The evaluation design
-
-Three levels, in increasing order of how much they tell you.
-
-**Random split.** The conventional shuffle. Included only as a reference point
-for how inflated the usual number is.
-
-**Family holdout, five folds.** Whole families are removed from training and
-validation and reappear only at test time. Across the five folds every one of
-the 25 training families is held out exactly once, so no single lucky partition
-drives the result. Each fold also carries a matched in-distribution slice scored
-by the *same* model, which is what makes the seen and unseen numbers comparable
-without the confound of two separate training runs.
-
-**Cross-source.** Sixteen further families from a different author, a different
-generation date, and a different repository, none of which appear in any
-training pool. Benign traffic is checked the same way, against an independently
-compiled top-domains ranking rather than the list the training corpus was built
-from.
-
-### Why the public suffix is stripped
-
-The model never sees a TLD. In the training corpus, corebot arrives as
-`<random>.ddns.net` while most benign samples end in `.com`. A character model
-handed the full name learns "ends in ddns.net" and reports a spectacular score
-that collapses the first time a family changes registrar. Everything to the
-right of the public suffix is removed before encoding, using a pinned Public
-Suffix List snapshot with private domains enabled so that dynamic DNS providers
-resolve as suffixes.
-
-TLD reputation is a real signal and a real defence should use it. It is excluded
-here so the reported generalisation describes the string model alone rather than
-a registrar lookup in disguise.
+> **Status.** All five folds trained and evaluated. Service, container and
+> infrastructure written and tested. Not yet deployed to a live URL. Numbers
+> below come from a small model trained on one CPU core for six epochs, so they
+> are a floor rather than a ceiling.
 
 ---
 
-## Results so far
+## Headline result
 
-Fold 0, holding out cryptolocker, dircrypt, padcrypt, ramnit and rovnix.
-Character CNN, 96,917 parameters, six epochs, trained on a subsample on a single
-CPU core. Undertrained on purpose while the harness was being validated.
+**Holding a family out costs a median 5.6 points of recall and a mean 14.9
+points**, at a fixed 0.1% false positive rate.
 
-| partition | AUC | AUPRC | recall @ 0.1% FPR |
+That gap is measured by pairing. Every family is held out in exactly one fold
+and trained in the other four, so each family is compared against *itself*.
+Family difficulty appears on both sides of the subtraction and cancels. This
+matters, because the naive comparison is actively misleading: in fold 0 the
+unseen partition scored *higher* than the seen one, purely because that fold
+happened to hold out five easy random-string families while the seen partition
+kept every hard one.
+
+Mean and median diverge sharply because the damage is concentrated:
+
+| family | recall trained | recall held out | cost |
 |---|---|---|---|
-| seen families | 0.9757 | 0.9751 | 0.5656 |
-| unseen families | 0.9942 | 0.9961 | 0.7770 |
-| cross-source | 0.9633 | 0.8721 | 0.5417 |
+| vawtrak | 0.7017 | 0.0147 | **+0.687** |
+| qadars | 0.9403 | 0.3542 | +0.586 |
+| kraken | 0.6033 | 0.2299 | +0.373 |
+| pykspa | 0.7592 | 0.4170 | +0.342 |
+| simda | 0.3563 | 0.0293 | +0.327 |
+| … | | | |
+| murofet | 0.9685 | 0.9687 | −0.000 |
+| necurs | 0.7576 | 0.7931 | −0.036 |
 
-Recall at a fixed 0.1% false positive rate is the headline operating point
-rather than accuracy or F1. Domain traffic is overwhelmingly benign, so a
-detector tuned at 1% FPR produces an unusable flood of alerts.
+Most families transfer nearly free. A handful collapse completely. A single
+averaged number hides which is which, which is why the per-family table is the
+result and the mean is a footnote.
 
-**The unseen number is higher than the seen number, and that is a flaw in the
-experiment, not a result.** Fold 0 happens to hold out five families that all
-generate high-entropy random-looking strings, which are easy whether or not you
-trained on them. The seen partition meanwhile retains every hard family,
-including the dictionary-based ones that look like real registrations. The
-comparison is measuring which families landed in the holdout.
+## The finding I did not expect
 
-The fix is a paired per-family design. For each family, compare its recall in
-the one fold where it was held out against its recall in the four folds where it
-was trained. Same family both times, so difficulty cancels out. That requires
-all five folds and is the next piece of work.
+**The classifier cannot detect dictionary-based DGAs at all, trained or not.**
+
+suppobox, matsnu and gozi build domains by concatenating real words, so their
+output looks like ordinary registered names. Recall on suppobox is 0.0000 when
+held out, and 0.0028 when it is sitting *in the training set*. matsnu reaches
+0.1382 trained. gozi reaches 0.2244 trained.
+
+This is not a generalisation failure. At this capacity the character CNN has no
+representation for "real words in an order a human would not choose", and
+holding the family out costs almost nothing because there was nothing to lose.
+Any honest DGA detector should report dictionary families separately rather than
+letting 22 easy random-string families carry the average.
 
 ---
 
-## Open problem: the novelty gate is at chance
+## The novelty gate
 
 A binary score answers "does this look generated". It cannot answer "is this a
 family I have seen before", and for a defender those are different questions. A
-confident hit on a known family is a signature match. A confident hit that sits
-far from every known family is a candidate novel campaign, which is the alert
-worth waking someone for.
+confident hit on a known family is a signature match. A confident hit far from
+every known family is a candidate novel campaign.
 
 The gate fits one Gaussian per known family in the classifier's penultimate
-space with a shared, shrunk covariance, and scores the Mahalanobis distance to
-the nearest centroid. No OOD data is needed to fit it.
+space with a pooled, shrunk covariance, and scores Mahalanobis distance to the
+nearest centroid. No OOD data is needed to fit it.
 
-It does not currently work. AUC 0.5376 separating unseen families from seen
-ones, and 5.83% of unseen families flagged at a 5% false positive rate on seen
-families, which is chance.
+**Median per-family AUC 0.7211. Fourteen of 25 families above 0.70, eight below
+0.50.**
 
-Two explanations were tested and rejected:
+I initially reported this gate as performing at chance. That was wrong, and the
+error is worth recording because it was a measurement bug rather than a model
+bug. I was pooling all five held-out families in a fold into one AUC. Four of
+fold 1's five families are random-string families whose style is well
+represented in training, so they are genuinely *not* novel and the gate
+correctly said so. Averaging four correct "not novel" verdicts against one real
+novelty produced 0.5237, which reads as broken.
 
-- **LayerNorm flattening the magnitude signal.** Scoring the pre-norm
-  representation instead gave 0.4777, worse than chance. Rejected.
-- **The embedding lacking family structure.** The family head reaches 0.8021
-  accuracy across 20 classes against a 0.05 baseline. The structure is there.
-  Rejected.
+Per family, fold 1 decomposes to suppobox 0.8802, pykspa 0.7354, tinba 0.3705,
+ranbyus 0.3213, emotet 0.3111. The pooled number was not a weak signal, it was
+the wrong measurement.
 
-What survives is that the embedding organises by *generation style* rather than
-family identity. Random-hex, random-alphanumeric and dictionary-based look like
-the real clusters. Fold 0's held-out families are all random-alphanumeric, a
-style already well covered in training, so they land near known centroids and
-the gate correctly reports they are not novel.
+**The gate catches what the classifier misses.** suppobox is the clearest case:
+recall 0.0000, gate AUC 0.8802, 34% flagged at a 5% false positive rate. The
+component that fails and the component that fires are looking at different
+things, which is the whole argument for having both.
 
-That is falsifiable. Fold 1 holds out suppobox, a dictionary DGA, while training
-on almost no dictionary families. If the account is right, fold 1's gate AUC
-should rise sharply and suppobox should drive nearly all of it. If it does not,
-the gate needs redesigning rather than reframing.
+### Where the style hypothesis stands
+
+I predicted the gate would fire specifically when a held-out family's
+*generation style* was absent from training. Dictionary families average 0.8038
+against 0.6551 for random-string families, a gap of +0.149 in the predicted
+direction.
+
+I would not call that settled. There are only three dictionary families, and the
+four highest gate scores in the table are random-string families (qadars and
+nymaim at 0.9623, symmi 0.9437, vawtrak 0.9401). The direction is right and the
+sample is too small to lean on.
+
+---
+
+## Serving
+
+| batch | p50 | p95 | p99 | per domain |
+|---|---|---|---|---|
+| 1 | 1.52 ms | 1.71 ms | 1.83 ms | 1.525 ms |
+| 10 | 10.55 ms | 11.34 ms | 14.53 ms | 1.055 ms |
+| 100 | 102.98 ms | 107.50 ms | 109.71 ms | 1.030 ms |
+| 500 | 481.51 ms | 506.97 ms | 512.57 ms | 0.963 ms |
+
+In-process inference on one core, excluding HTTP and network. End-to-end numbers
+require the deployed service and are not claimed here.
+
+The serving artifact is **0.57 MB** and carries weights, the novelty gate, the
+decision threshold, the novelty threshold, the family list, and the gate's
+measured AUC in one file. A threshold separated from the model it was calibrated
+on is a production incident waiting to happen.
+
+Because the artifact carries its measured gate AUC, **the API labels its own
+novelty field as unproven** whenever that AUC falls below 0.70. A field that
+means nothing is worse than no field.
+
+```bash
+curl -X POST https://<service>/v1/score \
+  -H 'Content-Type: application/json' \
+  -d '{"domain":"cvyh1po636avyrsxebwbkn7.ddns.net"}'
+```
+
+```json
+{
+  "domain": "cvyh1po636avyrsxebwbkn7.ddns.net",
+  "core": "cvyh1po636avyrsxebwbkn7",
+  "verdict": "dga",
+  "dga_probability": 0.998,
+  "nearest_family": "corebot",
+  "novelty_score": 84.2,
+  "is_novel": false
+}
+```
+
+Note `core`. **The model never sees a TLD.** In the training corpus corebot
+arrives as `<random>.ddns.net` while most benign samples end in `.com`. A
+character model handed the full name learns "ends in ddns.net" and reports a
+spectacular score that collapses the first time a family changes registrar.
+Everything right of the public suffix is stripped before encoding, using a
+pinned Public Suffix List snapshot with private domains enabled. TLD reputation
+is a real signal and a real defence should use it. It is excluded so the
+reported generalisation describes the string model rather than a registrar
+lookup in disguise.
+
+---
+
+## Infrastructure
+
+Cloud Run on the always-free tier, which is 2M requests, 180,000 vCPU-seconds
+and 360,000 GiB-seconds a month. At 512 MiB and roughly 1 ms of inference the
+binding constraint is request count, not compute.
+
+- `min_instance_count = 0` with `cpu_idle`. Pinning one warm instance costs about
+  $65 a month, so a scheduled ping every ten minutes keeps an instance alive
+  instead, at roughly 4,300 requests against a 2,000,000 allowance.
+- Artifact Registry cleanup keeps three versions. Free storage is 0.5 GB and
+  without a policy every CI build accumulates until it silently bills.
+- A one dollar budget alert as a tripwire, since any spend at all means
+  something is wrong.
+- Deploy authenticates through Workload Identity Federation. No long-lived
+  service account key exists in this repository.
+- CI fails the build above 900 MB, catching the failure mode where wheel
+  selection silently pulls 2.5 GB of CUDA into a CPU-only service.
 
 ---
 
 ## Data
 
-All three corpora are public, and a clean checkout reproduces the dataset with
-no gated feed, no API key and no account.
+All public, reproducible from a clean checkout with no gated feed and no account.
 
 | role | source | contents |
 |---|---|---|
@@ -134,78 +192,69 @@ no gated feed, no API key and no account.
 | cross-source DGA | [baderj/domain_generation_algorithms](https://github.com/baderj/domain_generation_algorithms) | per-family example domains, 16 usable unseen families |
 | cross-source benign | [zer0h/top-1000000-domains](https://github.com/zer0h/top-1000000-domains) | independent top-domains ranking |
 
-Only the checked-in example files from the generator repository are read. The
+Only checked-in example files are read from the generator repository. The
 generator scripts are never imported or executed.
 
-After normalisation and deduplication: **827,924 domains**, 350,789 malicious
-and 477,135 benign.
-
-Two things the build catches that are worth knowing about:
+**827,924 domains** after normalisation and deduplication, 350,789 malicious and
+477,135 benign. Three things the build catches:
 
 - **42,148 benign domains** appear in both benign corpora. Deduplicated globally
-  on the normalised core, training corpus winning.
-- **47 label conflicts**, domains present as both benign and malicious. These
-  are short-string families such as symmi generating four-character labels that
+  on the normalised core.
+- **47 label conflicts**, domains present as both benign and malicious. These are
+  short-string families such as symmi generating four-character labels that
   collide with real registrations. Dropped rather than arbitrarily assigned.
-
-And one bug worth a regression test: `nan.com`, `inf.com`, `na.com` and
-`null.com` are real registrations that pandas silently converts to floats under
-default NA handling. Every read path disables NA coercion.
+- `nan.com`, `inf.com`, `na.com` and `null.com` are real registrations that
+  pandas converts to floats under default NA handling. Every read path disables
+  NA coercion, with regression tests.
 
 ---
 
 ## Reproducing
 
 ```bash
-git clone https://github.com/<you>/nxdomain-sentinel.git
-cd nxdomain-sentinel
-pip install -e ".[dev]"
-
-python scripts/build_dataset.py          # clones corpora, builds splits, ~2 min
-python -m pytest tests/ -q               # 30 tests
-
-python scripts/train.py    --folds 0 1 2 3 4 --epochs 12
-python scripts/evaluate.py --folds 0 1 2 3 4
+make install        # CPU-only torch
+make data           # clones corpora, builds splits, ~2 min
+make test           # 42 tests
+make train          # 5 folds
+make eval           # scores every checkpoint
+make analyze        # paired per-family comparison
+make export bench   # serving artifact and latency table
+make serve          # local API on :8080
 ```
 
 Training and evaluation are separate commands with a checkpoint between them, so
-an evaluation failure costs seconds rather than the whole training run.
-
-Folds are materialised one at a time. Building all five at once copies 3.4
-million rows and was the actual cause of repeated out-of-memory kills during
-development.
-
----
+an evaluation failure costs seconds rather than the whole training run. Folds
+materialise one at a time; building all five copies 3.4 million rows and was the
+actual cause of repeated out-of-memory kills during development.
 
 ## Layout
 
 ```
 src/nxsentinel/
   data/normalize.py    public-suffix stripping, the anti-shortcut logic
-  data/sources.py      corpus definitions and cached fetching
   data/build.py        assembly, deduplication, conflict handling
   data/splits.py       family holdout, leakage assertions
-  model/charcnn.py     character CNN, two heads, shared embedding
-  model/ood.py         Mahalanobis novelty gate over that embedding
-  train/loop.py        training, gate fitting
-  train/evaluate.py    metrics, frozen thresholds, per-family breakdown
-scripts/               build_dataset, train, evaluate
-tests/                 30 tests, including a deliberately constructed leak
+  model/charcnn.py     character CNN, 96,917 params, two heads
+  model/ood.py         Mahalanobis novelty gate
+  train/evaluate.py    metrics, frozen thresholds, per-family breakdowns
+  serve/               FastAPI app, predictor, web UI
+scripts/               build_dataset, train, evaluate, analyze, export_model
+infra/                 Terraform for Cloud Run
+bench/                 latency harness
 ```
 
-The leakage tests matter more than they look. A split bug does not crash, it
-quietly raises every score, so the suite asserts that a constructed leak is
-*detected* rather than trusting that one never happens.
+Thresholds are calibrated on validation and frozen before any test partition is
+touched. The leakage suite asserts that a deliberately constructed leak is
+*detected*, because a split bug does not crash, it quietly raises every score.
 
----
+## Known limitations
 
-## Not done yet
-
-- Folds 1 through 4, and the paired per-family comparison
-- Resolving or redesigning the novelty gate
-- FastAPI service, web UI, container
-- Terraform for Cloud Run, GitHub Actions deploy via Workload Identity Federation
-- Measured p50, p95, p99 under load, cold start time, and the actual monthly bill
+- Dictionary DGAs are undetected. This needs word-boundary or lexical features,
+  not more epochs.
+- Six epochs on one CPU core. Seen-family recall at 0.1% FPR is 0.5656, a floor.
+- Only three dictionary families exist in the corpus, so the style analysis is
+  underpowered.
+- Not deployed yet, so no end-to-end latency and no real cold-start number.
 
 ## License
 

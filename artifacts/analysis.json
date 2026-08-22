@@ -1,0 +1,406 @@
+{
+  "paired_families": [
+    {
+      "family": "conficker",
+      "style": "random",
+      "recall_seen": 0.15919446556431385,
+      "recall_unseen": 0.12427573911751597,
+      "cost_of_holdout": 0.03491872644679789,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "corebot",
+      "style": "random",
+      "recall_seen": 0.9627081979882688,
+      "recall_unseen": 0.9224444444444444,
+      "cost_of_holdout": 0.04026375354382439,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "cryptolocker",
+      "style": "random",
+      "recall_seen": 0.8679716077633712,
+      "recall_unseen": 0.8384444444444444,
+      "cost_of_holdout": 0.029527163318926797,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "dircrypt",
+      "style": "random",
+      "recall_seen": 0.7988104987860722,
+      "recall_unseen": 0.788962962962963,
+      "cost_of_holdout": 0.009847535823109266,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "emotet",
+      "style": "random",
+      "recall_seen": 0.9418279043583508,
+      "recall_unseen": 0.916,
+      "cost_of_holdout": 0.025827904358350806,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "fobber",
+      "style": "random",
+      "recall_seen": 0.6352970754533172,
+      "recall_unseen": 0.582962962962963,
+      "cost_of_holdout": 0.052334112490354134,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "gozi",
+      "style": "dictionary",
+      "recall_seen": 0.22436344607462877,
+      "recall_unseen": 0.0024444444444444444,
+      "cost_of_holdout": 0.22191900163018433,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "kraken",
+      "style": "random",
+      "recall_seen": 0.603275741778897,
+      "recall_unseen": 0.22992592592592592,
+      "cost_of_holdout": 0.37334981585297106,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "matsnu",
+      "style": "dictionary",
+      "recall_seen": 0.13824905484972386,
+      "recall_unseen": 0.0,
+      "cost_of_holdout": 0.13824905484972386,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "murofet",
+      "style": "random",
+      "recall_seen": 0.9684652296157805,
+      "recall_unseen": 0.9687407407407408,
+      "cost_of_holdout": -0.0002755111249602704,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "necurs",
+      "style": "random",
+      "recall_seen": 0.7575735067379021,
+      "recall_unseen": 0.793134803364401,
+      "cost_of_holdout": -0.03556129662649887,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "nymaim",
+      "style": "random",
+      "recall_seen": 0.0037837779985483056,
+      "recall_unseen": 0.0031854211423068377,
+      "cost_of_holdout": 0.0005983568562414679,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "padcrypt",
+      "style": "random",
+      "recall_seen": 0.9224987436926753,
+      "recall_unseen": 0.6121481481481481,
+      "cost_of_holdout": 0.31035059554452715,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "pushdo",
+      "style": "random",
+      "recall_seen": 0.304268765210344,
+      "recall_unseen": 0.09251851851851851,
+      "cost_of_holdout": 0.21175024669182552,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "pykspa",
+      "style": "random",
+      "recall_seen": 0.7591660592549542,
+      "recall_unseen": 0.41703703703703704,
+      "cost_of_holdout": 0.34212902221791713,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "qadars",
+      "style": "random",
+      "recall_seen": 0.9403206494574702,
+      "recall_unseen": 0.3542222222222222,
+      "cost_of_holdout": 0.586098427235248,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "ramdo",
+      "style": "random",
+      "recall_seen": 0.9368352204423017,
+      "recall_unseen": 0.8768888888888889,
+      "cost_of_holdout": 0.05994633155341278,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "ramnit",
+      "style": "random",
+      "recall_seen": 0.7957240333046879,
+      "recall_unseen": 0.770074074074074,
+      "cost_of_holdout": 0.02564995923061386,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "ranbyus",
+      "style": "random",
+      "recall_seen": 0.9434679799103933,
+      "recall_unseen": 0.929037037037037,
+      "cost_of_holdout": 0.014430942873356334,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "rovnix",
+      "style": "random",
+      "recall_seen": 0.9638367224913564,
+      "recall_unseen": 0.8751851851851852,
+      "cost_of_holdout": 0.08865153730617126,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "simda",
+      "style": "random",
+      "recall_seen": 0.3562812321463689,
+      "recall_unseen": 0.029333333333333333,
+      "cost_of_holdout": 0.3269478988130356,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "suppobox",
+      "style": "dictionary",
+      "recall_seen": 0.0028168871022205212,
+      "recall_unseen": 0.0,
+      "cost_of_holdout": 0.0028168871022205212,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "symmi",
+      "style": "random",
+      "recall_seen": 0.2700827539660104,
+      "recall_unseen": 0.152,
+      "cost_of_holdout": 0.1180827539660104,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "tinba",
+      "style": "random",
+      "recall_seen": 0.8572978365791584,
+      "recall_unseen": 0.8009492732126965,
+      "cost_of_holdout": 0.05634856336646188,
+      "n_seen_folds": 4
+    },
+    {
+      "family": "vawtrak",
+      "style": "random",
+      "recall_seen": 0.7016792238860627,
+      "recall_unseen": 0.014666666666666666,
+      "cost_of_holdout": 0.687012557219396,
+      "n_seen_folds": 4
+    }
+  ],
+  "gate_by_style": [
+    {
+      "fold": "fold0",
+      "family": "cryptolocker",
+      "style": "random",
+      "gate_auc": 0.42613220187501943,
+      "flagged_at_5pct": 0.03192592592592593,
+      "n": 13500
+    },
+    {
+      "fold": "fold0",
+      "family": "dircrypt",
+      "style": "random",
+      "gate_auc": 0.4411400513899648,
+      "flagged_at_5pct": 0.03259259259259259,
+      "n": 13500
+    },
+    {
+      "fold": "fold0",
+      "family": "padcrypt",
+      "style": "random",
+      "gate_auc": 0.6978966211922252,
+      "flagged_at_5pct": 0.08496296296296296,
+      "n": 13500
+    },
+    {
+      "fold": "fold0",
+      "family": "ramnit",
+      "style": "random",
+      "gate_auc": 0.41900868647909145,
+      "flagged_at_5pct": 0.034074074074074076,
+      "n": 13500
+    },
+    {
+      "fold": "fold0",
+      "family": "rovnix",
+      "style": "random",
+      "gate_auc": 0.7038184776775984,
+      "flagged_at_5pct": 0.10785185185185185,
+      "n": 13500
+    },
+    {
+      "fold": "fold1",
+      "family": "emotet",
+      "style": "random",
+      "gate_auc": 0.3111480950418899,
+      "flagged_at_5pct": 0.011259259259259259,
+      "n": 13500
+    },
+    {
+      "fold": "fold1",
+      "family": "pykspa",
+      "style": "random",
+      "gate_auc": 0.7354339257428009,
+      "flagged_at_5pct": 0.2457037037037037,
+      "n": 13500
+    },
+    {
+      "fold": "fold1",
+      "family": "ranbyus",
+      "style": "random",
+      "gate_auc": 0.321274905461704,
+      "flagged_at_5pct": 0.012592592592592593,
+      "n": 13500
+    },
+    {
+      "fold": "fold1",
+      "family": "suppobox",
+      "style": "dictionary",
+      "gate_auc": 0.8801832024617802,
+      "flagged_at_5pct": 0.3416839608656982,
+      "n": 13492
+    },
+    {
+      "fold": "fold1",
+      "family": "tinba",
+      "style": "random",
+      "gate_auc": 0.37054051883677364,
+      "flagged_at_5pct": 0.021877781073865323,
+      "n": 13484
+    },
+    {
+      "fold": "fold2",
+      "family": "gozi",
+      "style": "dictionary",
+      "gate_auc": 0.7964606287112954,
+      "flagged_at_5pct": 0.16303703703703704,
+      "n": 13500
+    },
+    {
+      "fold": "fold2",
+      "family": "matsnu",
+      "style": "dictionary",
+      "gate_auc": 0.7348298831776556,
+      "flagged_at_5pct": 0.056296296296296296,
+      "n": 13500
+    },
+    {
+      "fold": "fold2",
+      "family": "murofet",
+      "style": "random",
+      "gate_auc": 0.4061462364765239,
+      "flagged_at_5pct": 0.0044444444444444444,
+      "n": 13500
+    },
+    {
+      "fold": "fold2",
+      "family": "necurs",
+      "style": "random",
+      "gate_auc": 0.40490830893969465,
+      "flagged_at_5pct": 0.03265893763734182,
+      "n": 13197
+    },
+    {
+      "fold": "fold2",
+      "family": "pushdo",
+      "style": "random",
+      "gate_auc": 0.8965541487847621,
+      "flagged_at_5pct": 0.42592592592592593,
+      "n": 13500
+    },
+    {
+      "fold": "fold3",
+      "family": "conficker",
+      "style": "random",
+      "gate_auc": 0.856679534629655,
+      "flagged_at_5pct": 0.5014856633486852,
+      "n": 13462
+    },
+    {
+      "fold": "fold3",
+      "family": "corebot",
+      "style": "random",
+      "gate_auc": 0.6458449264056898,
+      "flagged_at_5pct": 0.1431851851851852,
+      "n": 13500
+    },
+    {
+      "fold": "fold3",
+      "family": "kraken",
+      "style": "random",
+      "gate_auc": 0.8038252194644957,
+      "flagged_at_5pct": 0.48585185185185187,
+      "n": 13500
+    },
+    {
+      "fold": "fold3",
+      "family": "nymaim",
+      "style": "random",
+      "gate_auc": 0.9622811218342735,
+      "flagged_at_5pct": 0.8096155270760798,
+      "n": 13499
+    },
+    {
+      "fold": "fold3",
+      "family": "ramdo",
+      "style": "random",
+      "gate_auc": 0.7211250535614225,
+      "flagged_at_5pct": 0.07362962962962963,
+      "n": 13500
+    },
+    {
+      "fold": "fold4",
+      "family": "fobber",
+      "style": "random",
+      "gate_auc": 0.5853108341986847,
+      "flagged_at_5pct": 0.06837037037037037,
+      "n": 13500
+    },
+    {
+      "fold": "fold4",
+      "family": "qadars",
+      "style": "random",
+      "gate_auc": 0.9622927689594356,
+      "flagged_at_5pct": 0.8171111111111111,
+      "n": 13500
+    },
+    {
+      "fold": "fold4",
+      "family": "simda",
+      "style": "random",
+      "gate_auc": 0.8578905866257891,
+      "flagged_at_5pct": 0.2905185185185185,
+      "n": 13500
+    },
+    {
+      "fold": "fold4",
+      "family": "symmi",
+      "style": "random",
+      "gate_auc": 0.9437308015625774,
+      "flagged_at_5pct": 0.6654074074074074,
+      "n": 13500
+    },
+    {
+      "fold": "fold4",
+      "family": "vawtrak",
+      "style": "random",
+      "gate_auc": 0.940050609775082,
+      "flagged_at_5pct": 0.6288888888888889,
+      "n": 13500
+    }
+  ]
+}

@@ -64,6 +64,41 @@ def per_family_recall(df, scores, threshold: float) -> dict[str, dict]:
     return out
 
 
+def ood_separation_per_family(seen_scores, unseen_df, unseen_scores) -> dict:
+    """Gate separation computed one held-out family at a time.
+
+    Pooling every held-out family into a single AUC destroys the signal this
+    gate exists to produce. A fold holding out four stylistically familiar
+    families and one genuinely novel one averages to chance, and the pooled
+    number then reads as "the gate does not work" when what it actually means
+    is "four of these five families are not novel, and the gate said so".
+
+    Reporting per family is not a presentational choice. It is the only
+    resolution at which the measurement answers the question.
+    """
+    seen = np.asarray(seen_scores)
+    out = {}
+    if len(seen) == 0:
+        return out
+
+    thr = float(np.quantile(seen, 0.95))
+    fams = unseen_df["family"].astype(str).to_numpy()
+    scores = np.asarray(unseen_scores)
+
+    for fam in sorted(set(fams.tolist())):
+        d = scores[fams == fam]
+        if len(d) < 50:
+            continue
+        y = np.concatenate([np.zeros(len(seen)), np.ones(len(d))])
+        out[fam] = {
+            "n": int(len(d)),
+            "auc": float(roc_auc_score(y, np.concatenate([seen, d]))),
+            "flagged_at_5pct_seen_fpr": float((d >= thr).mean()),
+            "median_distance": float(np.median(d)),
+        }
+    return out
+
+
 def ood_separation(seen_scores, unseen_scores) -> dict:
     """How well the gate separates unseen families from trained ones.
 
@@ -122,11 +157,11 @@ def evaluate_fold(model, ood, split, cross) -> dict:
         else:
             res[name]["per_family"] = fam
 
-    seen = ood.score(
-        collect_embeddings(model, split.extra["test_seen"].query("label == 1")["core"].tolist())
-    )
-    unseen = ood.score(
-        collect_embeddings(model, split.test.query("label == 1")["core"].tolist())
-    )
+    seen_df = split.extra["test_seen"].query("label == 1")
+    unseen_df = split.test.query("label == 1")
+    seen = ood.score(collect_embeddings(model, seen_df["core"].tolist()))
+    unseen = ood.score(collect_embeddings(model, unseen_df["core"].tolist()))
+
     res["ood"] = ood_separation(seen, unseen)
+    res["ood_per_family"] = ood_separation_per_family(seen, unseen_df, unseen)
     return res

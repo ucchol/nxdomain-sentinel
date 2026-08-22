@@ -96,24 +96,27 @@ def paired_family_table(res: dict) -> list[dict]:
 
 
 def gate_by_style(res: dict) -> list[dict]:
-    """Novelty gate AUC per fold, annotated with the styles it held out.
+    """Novelty gate AUC per held-out family, annotated with that family's style.
 
-    The hypothesis predicts a fold holding out a dictionary family should score
-    markedly higher than folds holding out only random-string families.
+    Measured per family, not per fold. A fold-level AUC averages one genuinely
+    novel family against four stylistically familiar ones and lands at chance,
+    which reads as "the gate is broken" when it means "four of these five are
+    not novel and the gate correctly said so". The hypothesis is a claim about
+    families, so it has to be tested at the family level.
     """
     rows = []
     for name, r in sorted(res.items()):
-        held = r["meta"]["holdout_families"]
-        styles = sorted({STYLE.get(f, "unknown") for f in held})
-        rows.append(
-            {
-                "fold": name,
-                "gate_auc": r["ood"]["auc"],
-                "held_styles": styles,
-                "has_dictionary": "dictionary" in styles,
-                "holdout": held,
-            }
-        )
+        for fam, m in r.get("ood_per_family", {}).items():
+            rows.append(
+                {
+                    "fold": name,
+                    "family": fam,
+                    "style": STYLE.get(fam, "unknown"),
+                    "gate_auc": m["auc"],
+                    "flagged_at_5pct": m["flagged_at_5pct_seen_fpr"],
+                    "n": m["n"],
+                }
+            )
     return rows
 
 
@@ -140,30 +143,33 @@ def main() -> int:
         print(f"\n  mean cost of holding a family out: {costs.mean():+.4f}")
         print(f"  median: {np.median(costs):+.4f}   worst: {costs.max():+.4f}")
 
-    print("\n\nNOVELTY GATE BY HELD-OUT STYLE")
-    print("Hypothesis: the gate only fires when the held-out *style* is novel.\n")
+    print("\n\nNOVELTY GATE, PER HELD-OUT FAMILY")
+    print("Hypothesis: the gate fires when the held-out family's STYLE is novel.\n")
     gates = gate_by_style(res)
-    print(f"  {'fold':<8}{'gate AUC':>10}  {'dictionary held out?':<22}holdout")
-    print(f"  {'-' * 76}")
-    for g in gates:
+    if not gates:
+        print("  no per-family gate data, re-run scripts/evaluate.py")
+        gates = []
+    print(f"  {'family':<15}{'style':<12}{'gate AUC':>10}{'flagged@5%':>13}")
+    print(f"  {'-' * 50}")
+    for g in sorted(gates, key=lambda x: -x["gate_auc"]):
         print(
-            f"  {g['fold']:<8}{g['gate_auc']:>10.4f}  "
-            f"{'yes' if g['has_dictionary'] else 'no':<22}{', '.join(g['holdout'])}"
+            f"  {g['family']:<15}{g['style']:<12}{g['gate_auc']:>10.4f}"
+            f"{g['flagged_at_5pct']:>13.4f}"
         )
 
-    dict_folds = [g["gate_auc"] for g in gates if g["has_dictionary"]]
-    rand_folds = [g["gate_auc"] for g in gates if not g["has_dictionary"]]
+    dict_folds = [g["gate_auc"] for g in gates if g["style"] == "dictionary"]
+    rand_folds = [g["gate_auc"] for g in gates if g["style"] == "random"]
     if dict_folds and rand_folds:
         d, r = float(np.mean(dict_folds)), float(np.mean(rand_folds))
-        print(f"\n  mean AUC, folds holding out a dictionary family: {d:.4f}")
-        print(f"  mean AUC, folds holding out only random families: {r:.4f}")
+        print(f"\n  mean gate AUC, dictionary families (n={len(dict_folds)}): {d:.4f}")
+        print(f"  mean gate AUC, random-string families (n={len(rand_folds)}): {r:.4f}")
         print(f"  difference: {d - r:+.4f}")
         print(
             "\n  VERDICT: "
             + (
                 "consistent with the style hypothesis"
                 if d - r > 0.10
-                else "does NOT support the style hypothesis, the gate needs redesign"
+                else "does NOT support the style hypothesis at the family level"
             )
         )
     else:
