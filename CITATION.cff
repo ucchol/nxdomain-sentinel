@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+title: "nxdomain-sentinel: family-holdout evaluation for DGA detection"
+message: "If you use this software or its evaluation harness, please cite it."
+type: software
+authors:
+  - family-names: Rahman
+    given-names: Asif
+    affiliation: "The University of Texas at El Paso"
+    orcid: "https://orcid.org/0009-0004-4939-2065"
+repository-code: "https://github.com/ucchol/nxdomain-sentinel"
+url: "https://github.com/ucchol/nxdomain-sentinel"
+license: MIT
+keywords:
+  - domain generation algorithm
+  - out-of-distribution detection
+  - malware detection
+  - open-world evaluation

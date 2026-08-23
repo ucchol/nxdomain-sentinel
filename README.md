@@ -162,6 +162,76 @@ lookup in disguise.
 
 ---
 
+## What you can actually do with it
+
+### Triage resolver logs
+
+The batch endpoint exists because DNS triage is inherently a batch problem. Pull
+the NXDOMAIN responses out of a day of resolver logs and score them in chunks of
+500. Infected hosts running a DGA generate hundreds of failed lookups an hour,
+so the signal shows up as a cluster of high-confidence hits from one source
+address rather than as any single domain.
+
+```bash
+# one domain
+curl -sX POST http://localhost:8080/v1/score \
+  -H 'Content-Type: application/json' \
+  -d '{"domain":"mortiscontrastatim.com"}'
+
+# a file of domains, 500 at a time
+jq -Rn '{domains: [inputs]}' < domains.txt | \
+  curl -sX POST http://localhost:8080/v1/score/batch \
+       -H 'Content-Type: application/json' -d @- | \
+  jq -r '.results[] | select(.verdict=="dga") | [.domain, .dga_probability, .nearest_family] | @tsv'
+```
+
+### Watch the novelty flag, not just the verdict
+
+`is_novel` is the field worth alerting on. A high-confidence hit that matches a
+known family is a signature match your existing blocklist probably already
+covers. A high-confidence hit sitting far from every known centroid is a
+candidate campaign nobody has written a signature for yet. That is the alert
+worth a human.
+
+The suppobox case is the argument for it: the classifier scores that family at
+0.0000 while the gate flags it at 0.8802.
+
+### Pre-filter before expensive analysis
+
+At roughly 1 ms per domain this is cheap enough to sit in front of anything that
+is not. Sandbox detonation, WHOIS enrichment, passive DNS lookups and commercial
+reputation APIs all cost orders of magnitude more per query. Use the classifier
+to decide what deserves them.
+
+### Reuse the evaluation harness
+
+The most portable part of this repository is not the model, it is
+`data/splits.py` and `train/evaluate.py`. Swap in any DGA detector and you get
+family holdout, frozen thresholds, leakage assertions and per-family breakdowns
+for free. If you are writing a paper in this area, the harness will tell you how
+much of your reported number came from the random shuffle.
+
+### Teach the open-world gap
+
+Fold 0 is a ready-made lesson. The unseen partition scores *higher* than the
+seen one, and the reason is entirely about which families landed where. It is a
+compact demonstration of why a single held-out split cannot answer a
+generalisation question.
+
+### What it is not
+
+- **Not a replacement for a commercial feed.** No passive DNS, no registration
+  age, no hosting reputation, no TLS certificate signals. It reads the string
+  and nothing else.
+- **Blind to dictionary DGAs.** suppobox, matsnu and gozi pass through. If your
+  threat model includes them, this is not sufficient on its own.
+- **No IOC context.** It tells you a name looks generated. It does not tell you
+  which malware family is on which host or what to do next.
+- **Trained on a 2019-era corpus.** Benign naming conventions drift. Retrain
+  against a current top-domains list before trusting the false positive rate.
+
+---
+
 ## Infrastructure
 
 Cloud Run on the always-free tier, which is 2M requests, 180,000 vCPU-seconds
@@ -212,6 +282,9 @@ generator scripts are never imported or executed.
 ## Reproducing
 
 ```bash
+git clone https://github.com/ucchol/nxdomain-sentinel.git
+cd nxdomain-sentinel
+
 make install        # CPU-only torch
 make data           # clones corpora, builds splits, ~2 min
 make test           # 42 tests
@@ -255,6 +328,21 @@ touched. The leakage suite asserts that a deliberately constructed leak is
 - Only three dictionary families exist in the corpus, so the style analysis is
   underpowered.
 - Not deployed yet, so no end-to-end latency and no real cold-start number.
+
+## Related work
+
+The novelty gate follows the class-conditional approach in *MAD-OOD: A Deep
+Learning Cluster-Driven Framework for an Out-of-Distribution Malware Detection
+and Classification* (TrustCom 2025), and the classifier line continues
+*Fine-tuning Large Language Models for DGA and DNS Exfiltration Detection*
+(ACSAC Workshops 2024, [arXiv:2410.21723](https://arxiv.org/abs/2410.21723)).
+
+## Author
+
+Asif Rahman, PhD candidate in Computer Science at the University of Texas at
+El Paso. [ucchol.github.io](https://ucchol.github.io) ·
+[Google Scholar](https://scholar.google.com/citations?user=FfLKS8AAAAAJ) ·
+[GitHub](https://github.com/ucchol)
 
 ## License
 
