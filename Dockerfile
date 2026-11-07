@@ -43,5 +43,5 @@ EXPOSE 8080
 
 # One worker, one thread. The instance has one vCPU; extra workers would
 # multiply the resident model and contend for the same core.
-CMD exec uvicorn nxsentinel.serve.app:app \
+CMD exec python -m uvicorn nxsentinel.serve.app:app \
       --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --log-level warning

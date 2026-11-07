@@ -46,10 +46,10 @@ jobs:
       - name: Smoke-test the image
         run: |
           DIGEST=$(sha256sum artifacts/serving_model.pt | cut -d' ' -f1)
-          docker run --rm -d --name nxs-ci -p 127.0.0.1:8080:8080 \
+          docker run -d --name nxs-ci -p 127.0.0.1:8080:8080 \
             -e "NXS_MODEL_SHA256=$DIGEST" nxs:ci
-          trap 'docker logs nxs-ci; docker stop nxs-ci' EXIT
-          curl -fsS --retry 20 --retry-connrefused --retry-delay 1 \
+          trap 'docker logs nxs-ci || true; docker rm -f nxs-ci' EXIT
+          curl -fsS --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 \
             http://127.0.0.1:8080/readyz
           curl -fsS -X POST http://127.0.0.1:8080/v1/score/batch \
             -H 'Content-Type: application/json' -d '{"domains":["example.com"]}' |

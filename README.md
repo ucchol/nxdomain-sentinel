@@ -349,6 +349,10 @@ generalisation question.
 
 ## Private deployment and latency
 
+CI starts the built image, waits for readiness, and checks batch scoring.
+The image starts Uvicorn through Python, and CI captures container logs
+before removing the test container.
+
 Cloud Run uses authenticated invocation. Grant `roles/run.invoker` to
 specific principals, including the deployment service account used by the
 smoke test. With Terraform, use `invoker_members` and supply
