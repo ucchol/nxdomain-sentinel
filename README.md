@@ -30,6 +30,11 @@ This repository measures that, and the answer is not flattering to anybody.
   for each fold and partition. Calibration uses known DGA samples in validation.
   The checked-in results predate this evaluation.
 
+- **Alert-only DNS replay implemented.** A local command groups DNS responses
+  by pseudonymous device and time window, scores distinct NXDOMAIN names, and
+  emits JSONL cases for investigation or SIEM ingestion. The initial rules are
+  pilot defaults awaiting calibration on authorized resolver telemetry.
+
 ## Headline result
 
 **Holding a family out costs a median 5.6 points of recall and a mean 14.9
@@ -176,26 +181,30 @@ lookup in disguise.
 
 ## What you can actually do with it
 
-### Triage resolver logs
+### Replay DNS logs for triage
 
-The batch endpoint exists because DNS triage is inherently a batch problem. Pull
-the NXDOMAIN responses out of a day of resolver logs and score them in chunks of
-500. Infected hosts running a DGA generate hundreds of failed lookups an hour,
-so the signal shows up as a cluster of high-confidence hits from one source
-address rather than as any single domain.
+With a trusted model from `make export`:
 
 ```bash
-# one domain
-curl -sX POST http://localhost:8080/v1/score \
-  -H 'Content-Type: application/json' \
-  -d '{"domain":"mortiscontrastatim.com"}'
-
-# a file of domains, 500 at a time
-jq -Rn '{domains: [inputs]}' < domains.txt | \
-  curl -sX POST http://localhost:8080/v1/score/batch \
-       -H 'Content-Type: application/json' -d @- | \
-  jq -r '.results[] | select(.verdict=="dga") | [.domain, .dga_probability, .nearest_family] | @tsv'
+export NXS_REPLAY_HMAC_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+python scripts/replay_dns.py dns.jsonl > cases.jsonl
 ```
+
+Input is timestamp-ordered [Zeek JSON DNS logs](https://docs.zeek.org/en/master/reference/logs/dns.html)
+from the client side of the resolver, or normalized JSONL with Unix seconds
+`ts`, string `client`, string `query`, and numeric `rcode`.
+For Unbound, convert dnstap client responses to the normalized format first.
+Only RCODE 3 is scored. All usable responses contribute to window totals.
+Entries without a query or response code are skipped and counted on stderr.
+
+The default rule emits one case per device per five-minute window when at
+least five different names returned NXDOMAIN and at least two crossed the
+classifier or standalone novelty threshold. `--all-windows` includes
+non-alert windows for evaluation. Case IDs are stable for the same key,
+device identifier and window size. Retain the secret across replays of one
+dataset and isolate it per environment. Case evidence includes raw query
+names. Keep logs and cases local with restricted access and limited retention.
+If a replay exits with an error, discard its partial output.
 
 ### Inspect novelty alongside DNS behavior
 
