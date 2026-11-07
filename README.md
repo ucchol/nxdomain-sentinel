@@ -35,6 +35,11 @@ This repository measures that, and the answer is not flattering to anybody.
   emits JSONL cases for investigation or SIEM ingestion. The initial rules are
   pilot defaults awaiting calibration on authorized resolver telemetry.
 
+- **Forward-in-time replay benchmark implemented.** The existing paired
+  family holdout stays in place. The replay benchmark compares five detection
+  policies under one calibration budget, with later labeled device windows
+  and an optional second network. No pilot performance is claimed yet.
+
 ## Headline result
 
 **Holding a family out costs a median 5.6 points of recall and a mean 14.9
@@ -205,6 +210,37 @@ device identifier and window size. Retain the secret across replays of one
 dataset and isolate it per environment. Case evidence includes raw query
 names. Keep logs and cases local with restricted access and limited retention.
 If a replay exits with an error, discard its partial output.
+
+### Benchmark a replay
+
+Run the replay with `--all-windows` so device-day exposure includes quiet
+windows. Use a reviewed labels JSONL file keyed by `case_id`. Reviewed benign
+windows have `"status":"benign"`. Malicious windows have `"status":"malicious"`
+and include `episode_id`, `episode_start` (Unix seconds), `family`, and
+`style` (for example `dictionary`). Include all observable windows of known
+test episodes, even when the replay did not alert. Leave unreviewed windows
+unlabeled. Add authorized dictionary-DGA captures to this test as a distinct
+cohort, with benign lookalikes in the background.
+
+```bash
+python scripts/replay_dns.py dns.jsonl --all-windows > windows.jsonl
+python scripts/benchmark_replay.py windows.jsonl labels.jsonl \
+  --calibration-end 1764547200 --test-start 1764547200 \
+  --alerts-per-1000-device-days 10 > benchmark.json
+```
+
+Use cutoffs appropriate for your capture. Complete earlier windows set the
+threshold for each policy under the same budget. Score ties stay together,
+which can leave part of the budget unused. Later windows are scored with
+frozen thresholds, so realized alert rates can differ. For a second network,
+pass `--test-features other-windows.jsonl` scored with the same model and
+window duration. Device-days count observed devices per UTC window-start day.
+
+The report includes reviewed-case precision, unreviewed alerts, confirmed
+false alerts per 1,000 device-days, episode counts by family and style, and
+median delay to the first alert among detected episodes that started during
+the test. Confirmed false alerts are a lower bound with partial review.
+The checked-in family-held-out domain results are separate from this replay.
 
 ### Inspect novelty alongside DNS behavior
 
