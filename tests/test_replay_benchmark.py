@@ -39,7 +39,7 @@ def test_replay_benchmark_freezes_thresholds_and_tracks_unreviewed_alerts():
         {"status": "benign", "case_id": "b-86400"},
     ]
 
-    report = compare(calibration, test, labels, 300, 86400, 500)
+    report = compare(calibration, test, labels, 300, 86400, 500, known_families=["other"])
     assert report["test_device_days"] == 3
     assert report["calibration_alert_slots"] == 1
     cnn = report["methods"]["cnn"]
@@ -53,6 +53,7 @@ def test_replay_benchmark_freezes_thresholds_and_tracks_unreviewed_alerts():
     assert fused["reviewed_precision"] == pytest.approx(2 / 3)
     assert fused["episodes_by_style"]["dictionary"] == {"total": 1, "detected": 1}
     assert fused["median_detection_seconds"] == 290
+    assert fused["episodes_by_family_exposure"] == {"unseen": {"total": 1, "detected": 1}}
 
 
 def test_benchmark_rejects_a_mixed_model_comparison():

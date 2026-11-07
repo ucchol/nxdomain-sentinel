@@ -44,6 +44,12 @@ This repository measures that, and the answer is not flattering to anybody.
   and word-pair signal participates in the same replay and alert-budget
   benchmark. Its effect on real dictionary families still needs measurement.
 
+- **Deployment hardening implemented.** Requests are size-limited, the
+  serving checkpoint is verified by SHA-256 in Cloud Run, and deployment
+  is private and manually triggered. Source revisions and the public suffix
+  snapshot dependency are pinned for new builds. Live cloud verification is
+  pending environment setup.
+
 ## Headline result
 
 **Holding a family out costs a median 5.6 points of recall and a mean 14.9
@@ -117,10 +123,11 @@ Per family, fold 1 decomposes to suppobox 0.8802, pykspa 0.7354, tinba 0.3705,
 ranbyus 0.3213, emotet 0.3111. The pooled number was not a weak signal, it was
 the wrong measurement.
 
-**The gate catches what the classifier misses.** suppobox is the clearest case:
-recall 0.0000, gate AUC 0.8802, 34% flagged at a 5% false positive rate. The
-component that fails and the component that fires are looking at different
-things, which is the whole argument for having both.
+**The standalone gate adds a different signal.** In the offline Suppobox
+comparison, classifier recall was 0.0000 and gate AUC was 0.8802. The novelty
+score alone flagged 34% of Suppobox samples at a cutoff that flagged 5% of the
+known-DGA reference. The replay benchmark measures whether this signal helps
+with benign background traffic and a limited alert budget.
 
 ### Where the style hypothesis stands
 
@@ -212,7 +219,9 @@ classifier or standalone novelty threshold. `--all-windows` includes
 non-alert windows for evaluation. Case IDs are stable for the same key,
 device identifier and window size. Retain the secret across replays of one
 dataset and isolate it per environment. Case evidence includes raw query
-names. Keep logs and cases local with restricted access and limited retention.
+names and first/last query times. Use `--evidence-limit 0` to emit counts
+without query names. Keep logs and cases local with restricted access and
+limited retention.
 If a replay exits with an error, discard its partial output.
 
 ### Benchmark a replay
@@ -243,7 +252,9 @@ window duration. Device-days count observed devices per UTC window-start day.
 The report includes reviewed-case precision, unreviewed alerts, confirmed
 false alerts per 1,000 device-days, episode counts by family and style, and
 median delay to the first alert among detected episodes that started during
-the test. Confirmed false alerts are a lower bound with partial review.
+the test. Pass `--model artifacts/serving_model.pt` for a seen versus unseen
+family breakdown based on that exact artifact. Use family labels consistent
+with the training corpus. Confirmed false alerts are a lower bound with partial review.
 The checked-in family-held-out domain results are separate from this replay.
 
 ### Run the dictionary-DGA experiment
@@ -308,29 +319,45 @@ generalisation question.
 
 ---
 
-## Infrastructure
+## Private deployment and latency
 
-Cloud Run on the always-free tier, which is 2M requests, 180,000 vCPU-seconds
-and 360,000 GiB-seconds a month. At 512 MiB and roughly 1 ms of inference the
-binding constraint is request count, not compute.
+Cloud Run uses authenticated invocation. Grant `roles/run.invoker` to
+specific principals, including the deployment service account used by the
+smoke test. With Terraform, use `invoker_members` and supply
+`model_sha256` for the artifact inside the image.
 
-- `min_instance_count = 0` with `cpu_idle`. Pinning one warm instance costs about
-  $65 a month, so a scheduled ping every ten minutes keeps an instance alive
-  instead, at roughly 4,300 requests against a 2,000,000 allowance.
-- Artifact Registry cleanup keeps three versions. Free storage is 0.5 GB and
-  without a policy every CI build accumulates until it silently bills.
-- A one dollar budget alert as a tripwire, since any spend at all means
-  something is wrong.
-- Deploy authenticates through Workload Identity Federation. No long-lived
-  service account key exists in this repository.
-- CI fails the build above 900 MB, catching the failure mode where wheel
-  selection silently pulls 2.5 GB of CUDA into a CPU-only service.
+The GitHub Actions **deploy** workflow is manually dispatched. Configure the
+`production` environment with the existing WIF and deployment secrets
+(`WIF_PROVIDER`, `DEPLOY_SA`, `GCP_PROJECT`, `MODEL_URI`) and set
+`MODEL_SHA256` to the full lowercase digest printed by `make export`.
+The workflow checks the artifact before building, verifies startup against
+the same digest, and tests both anonymous rejection and authenticated scoring.
+Only use model artifacts from your trusted build and release path.
 
----
+Local scoring remains available on loopback. Both endpoints cap domain length
+at 253 characters, the batch route defaults to 500 domains, and request bodies
+are capped at 1 MiB. Replay runs locally against the model file and can verify
+it with `NXS_MODEL_SHA256`.
+
+To measure HTTP p50, p95 and p99 latency, run:
+
+```bash
+python bench/http_latency.py http://127.0.0.1:8080 --batch-size 100 --concurrency 4
+```
+
+For Cloud Run, use the HTTPS service URL and pass an audience-appropriate
+ID token via `NXS_BENCH_TOKEN`. The tool measures direct HTTP requests and reports the first request separately.
+An idle run is required to study cold starts. The replay command reports total
+wall time on stderr, while the replay benchmark reports detection delay on the
+capture timeline. These measure different parts of the system.
 
 ## Data
 
-All public, reproducible from a clean checkout with no gated feed and no account.
+The public sources are pinned in `src/nxsentinel/data/sources.py`. A new
+build records their revisions and the preprocessing dependency version in
+`data/processed/dataset_report.json`. If a cached checkout differs, run
+`python scripts/build_dataset.py --force-download` to rebuild with the pinned
+sources. The historical figures below are retained as originally reported.
 
 | role | source | contents |
 |---|---|---|
@@ -363,7 +390,7 @@ cd nxdomain-sentinel
 
 make install        # CPU-only torch
 make data           # clones corpora, builds splits, ~2 min
-make test           # 42 tests
+make test           # unit and API tests
 make train          # 5 folds
 make eval           # scores every checkpoint
 make analyze        # paired per-family comparison

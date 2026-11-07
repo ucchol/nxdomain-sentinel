@@ -55,7 +55,7 @@ def _label_index(labels, test_ids):
     return by_case, episodes
 
 
-def _metrics(alerts, by_case, eligible, episodes, days):
+def _metrics(alerts, by_case, eligible, episodes, days, known_families):
     reviewed = [row for row in alerts if row["case_id"] in by_case]
     malicious = [row for row in reviewed if by_case[row["case_id"]]["status"] == "malicious"]
     first_detection = {}
@@ -69,9 +69,14 @@ def _metrics(alerts, by_case, eligible, episodes, days):
 
     family = defaultdict(Counter)
     style = defaultdict(Counter)
+    exposure = defaultdict(Counter)
     for episode in eligible:
         family_name, style_name, _ = episodes[episode]
-        for breakdown, name in ((family, family_name), (style, style_name)):
+        groups = [(family, family_name), (style, style_name)]
+        if known_families is not None:
+            membership = "seen" if family_name.casefold() in known_families else "unseen"
+            groups.append((exposure, membership))
+        for breakdown, name in groups:
             breakdown[name]["total"] += 1
             breakdown[name]["detected"] += episode in first_detection
 
@@ -88,12 +93,14 @@ def _metrics(alerts, by_case, eligible, episodes, days):
         ) if first_detection else None,
         "episodes_by_family": dict(sorted(family.items())),
         "episodes_by_style": dict(sorted(style.items())),
+        "episodes_by_family_exposure": dict(sorted(exposure.items())) if known_families is not None
+        else None,
     }
 
 
 def compare(
     calibration_rows, test_rows, labels, calibration_end, test_start,
-    alert_budget, min_distinct=5,
+    alert_budget, min_distinct=5, known_families=None,
 ):
     """Freeze thresholds on earlier windows, then score later labeled windows."""
     if not 0 < calibration_end <= test_start or not isfinite(test_start):
@@ -104,12 +111,18 @@ def compare(
     test = [row for row in test_rows if row["window_start"] >= test_start]
     if not calibration or not test:
         raise ValueError("both calibration and test need at least one eligible window")
+    if any(row.get("all_windows") is False for row in calibration + test):
+        raise ValueError("benchmark requires replay output from --all-windows")
     keys = [row["case_id"] for row in calibration + test]
     if len(set(keys)) != len(keys):
         raise ValueError("duplicate case ID in feature windows")
     model_versions = {row["model_version"] for row in calibration + test}
     if len(model_versions) != 1:
         raise ValueError("calibration and test must use the same model version")
+    known = {family.casefold() for family in known_families} if known_families is not None else None
+    model_digests = {row.get("model_sha256") for row in calibration + test}
+    if len(model_digests) != 1:
+        raise ValueError("calibration and test must use the same model artifact")
     lexical_versions = {row.get("lexical_version") for row in calibration + test}
     if len(lexical_versions) != 1:
         raise ValueError("calibration and test must use the same lexicon")
@@ -138,6 +151,7 @@ def compare(
         "calibration_alert_slots": slots,
         "model_version": next(iter(model_versions)),
         "lexical_version": lexical_version,
+        "model_sha256": next(iter(model_digests)),
         "methods": {},
     }
     methods = dict(METHODS)
@@ -154,6 +168,6 @@ def compare(
         report["methods"][method] = {
             "threshold": threshold,
             "calibration_alerts": sum(score >= threshold for score in scores),
-            **_metrics(alerts, by_case, eligible, episodes, test_days),
+            **_metrics(alerts, by_case, eligible, episodes, test_days, known),
         }
     return report

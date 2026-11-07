@@ -5,9 +5,7 @@
 # 60,000 vCPU-seconds and 30,000 GiB-seconds, so the binding constraint is the
 # request count rather than compute.
 #
-# min_instance_count stays at 0. Pinning one warm instance would cost roughly
-# $65/month and blow the budget entirely; the scheduled ping in
-# .github/workflows/keepwarm.yml handles cold starts instead, for free.
+# Scale to zero so idle and cold-start behavior can be measured in the pilot.
 
 terraform {
   required_version = ">= 1.5"
@@ -40,6 +38,26 @@ variable "image" {
 variable "github_repo" {
   type        = string
   description = "owner/repo, used to scope the deploy identity"
+}
+variable "model_sha256" {
+  type        = string
+  description = "Full lowercase SHA-256 digest of the model baked into the image"
+  validation {
+    condition     = can(regex("^[0-9a-f]{64}$", var.model_sha256))
+    error_message = "model_sha256 must be a lowercase SHA-256 digest."
+  }
+}
+variable "invoker_members" {
+  type        = set(string)
+  default     = []
+  description = "Explicit Cloud Run principals, including the CI smoke-test identity"
+  validation {
+    condition = (
+      !contains(var.invoker_members, "allUsers") &&
+      !contains(var.invoker_members, "allAuthenticatedUsers")
+    )
+    error_message = "Only explicit invoker principals are allowed."
+  }
 }
 
 resource "google_project_service" "required" {
@@ -85,9 +103,7 @@ resource "google_cloud_run_v2_service" "svc" {
 
   template {
     service_account = google_service_account.runtime.email
-    # Generous concurrency because inference is short and CPU-bound in bursts.
-    # Serving more requests per instance directly reduces billed instance time.
-    max_instance_request_concurrency = 80
+    max_instance_request_concurrency = 4
     timeout                          = "30s"
 
     scaling {
@@ -97,6 +113,10 @@ resource "google_cloud_run_v2_service" "svc" {
 
     containers {
       image = var.image
+      env {
+        name  = "NXS_MODEL_SHA256"
+        value = var.model_sha256
+      }
       ports { container_port = 8080 }
 
       resources {
@@ -125,11 +145,12 @@ resource "google_cloud_run_v2_service" "svc" {
   depends_on = [google_project_service.required]
 }
 
-resource "google_cloud_run_v2_service_iam_member" "public" {
+resource "google_cloud_run_v2_service_iam_member" "invoker" {
+  for_each = var.invoker_members
   name     = google_cloud_run_v2_service.svc.name
   location = google_cloud_run_v2_service.svc.location
   role     = "roles/run.invoker"
-  member   = "allUsers"
+  member   = each.value
 }
 
 # Budget tripwire. The free tier should never be exceeded, so any spend at all

@@ -7,8 +7,8 @@ import hmac
 import json
 import math
 from collections import Counter
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import Iterable, Iterator
 
 NXDOMAIN = 3
 
@@ -19,6 +19,13 @@ class Event:
     device_id: str
     query: str
     nxdomain: bool
+
+
+@dataclass
+class Observation:
+    first_ts: float
+    last_ts: float
+    count: int = 1
 
 
 def device_id(secret: bytes, client: str) -> str:
@@ -101,7 +108,7 @@ def _score_window(groups, start, seconds, predict, batch_size, evidence_limit, l
             "window_start": start,
             "window_end": start + seconds,
             "responses": total,
-            "nxdomain_responses": sum(failed.values()),
+            "nxdomain_responses": sum(entry.count for entry in failed.values()),
             "distinct_nxdomain": len(failed),
             "unscored_names": unscored,
             "dga_names": len(dga),
@@ -110,7 +117,9 @@ def _score_window(groups, start, seconds, predict, batch_size, evidence_limit, l
             "evidence": [
                 {
                     "query": query,
-                    "count": failed[query],
+                    "count": failed[query].count,
+                    "first_seen": failed[query].first_ts,
+                    "last_seen": failed[query].last_ts,
                     "dga_score": scores[query].dga_probability,
                     "novelty_score": scores[query].novelty_score,
                     "above_dga_threshold": scores[query].verdict == "dga",
@@ -138,7 +147,7 @@ def windows(
     if seconds < 1 or batch_size < 1 or evidence_limit < 0:
         raise ValueError("window and batch sizes must be positive, evidence limit nonnegative")
     start = None
-    groups: dict[str, tuple[int, Counter]] = {}
+    groups: dict[str, tuple[int, dict[str, Observation]]] = {}
     for event in records:
         bucket = int(event.ts // seconds) * seconds
         if start is not None and bucket != start:
@@ -147,9 +156,14 @@ def windows(
             )
             groups.clear()
         start = bucket
-        total, failed = groups.get(event.device_id, (0, Counter()))
+        total, failed = groups.get(event.device_id, (0, {}))
         if event.nxdomain:
-            failed[event.query] += 1
+            previous = failed.get(event.query)
+            if previous is None:
+                failed[event.query] = Observation(event.ts, event.ts)
+            else:
+                previous.last_ts = event.ts
+                previous.count += 1
         groups[event.device_id] = total + 1, failed
     if start is not None:
         yield from _score_window(

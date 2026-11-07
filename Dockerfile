@@ -10,12 +10,14 @@ COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
 RUN pip install --no-cache-dir --target=/deps \
-      --extra-index-url https://download.pytorch.org/whl/cpu \
-      torch numpy pandas scikit-learn tldextract \
+      --index-url https://download.pytorch.org/whl/cpu "torch>=2.6" \
+ && PYTHONPATH=/deps pip install --no-cache-dir --target=/deps \
+      numpy "tldextract==5.4.0" \
       fastapi "uvicorn[standard]" pydantic \
  && find /deps -name "__pycache__" -type d -exec rm -rf {} + \
  && find /deps -name "*.pyc" -delete \
  && find /deps -name "tests" -type d -prune -exec rm -rf {} + \
+ && find /deps/torch/bin -maxdepth 1 -type f ! -name torch_shm_manager -delete \
  && rm -rf /deps/torch/test /deps/torch/include
 
 FROM python:3.12-slim

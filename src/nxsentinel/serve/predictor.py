@@ -13,6 +13,9 @@ shipping one labelled as unproven.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import io
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,6 +70,7 @@ class Predictor:
         families: list[str],
         version: str,
         gate_auc: float | None = None,
+        artifact_sha256: str | None = None,
     ):
         self.model = model.eval()
         self.ood = ood
@@ -75,14 +79,21 @@ class Predictor:
         self.families = families
         self.version = version
         self.gate_auc = gate_auc
+        self.artifact_sha256 = artifact_sha256
 
     @property
     def gate_is_trustworthy(self) -> bool:
         return self.gate_auc is not None and self.gate_auc >= GATE_TRUSTWORTHY_AUC
 
     @classmethod
-    def load(cls, path: str | Path) -> "Predictor":
-        ck = torch.load(Path(path), weights_only=False, map_location="cpu")
+    def load(cls, path: str | Path, expected_sha256: str | None = None) -> "Predictor":
+        artifact = Path(path).read_bytes()
+        digest = hashlib.sha256(artifact).hexdigest()
+        if expected_sha256 is not None and not hmac.compare_digest(
+            digest, expected_sha256.strip().lower()
+        ):
+            raise ValueError("model artifact SHA-256 mismatch")
+        ck = torch.load(io.BytesIO(artifact), weights_only=True, map_location="cpu")
         model = CharCNN(CharCNNConfig.from_dict(ck["config"]))
         model.load_state_dict(ck["state_dict"])
         return cls(
@@ -93,6 +104,7 @@ class Predictor:
             families=list(ck["families"]),
             version=str(ck.get("version", "unknown")),
             gate_auc=ck.get("gate_auc"),
+            artifact_sha256=digest,
         )
 
     @torch.no_grad()
@@ -121,8 +133,10 @@ class Predictor:
             probs = torch.sigmoid(logit).numpy()
             e = emb.numpy()
 
-            dists = self.ood.score(e)
-            nearest = self.ood.nearest_family(e)
+            distances = self.ood.distances(e)
+            closest = distances.argmin(axis=1)
+            dists = distances[np.arange(len(closest)), closest]
+            nearest = [self.ood.classes[index] for index in closest]
 
             note = None
             if not self.gate_is_trustworthy:

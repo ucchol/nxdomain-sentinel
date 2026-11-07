@@ -42,6 +42,8 @@ def test_replay_groups_devices_keeps_counts_and_scores_unique_names():
     assert row["distinct_nxdomain"] == row["combined_names"] == 2
     assert row["dga_names"] == row["novelty_names"] == 1
     assert row["evidence"][1]["count"] == 2
+    assert row["evidence"][1]["first_seen"] == 10
+    assert row["evidence"][1]["last_seen"] == 11
     assert alert(row, min_distinct=2, min_suspicious=2)
     assert not alert(by_key[device_id(secret, "b"), 0], min_distinct=2, min_suspicious=2)
     assert batches == [["dga.com"], ["novel.com"], ["novel.com"]]

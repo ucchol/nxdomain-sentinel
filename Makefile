@@ -1,7 +1,8 @@
 .PHONY: install data test train eval analyze export bench serve docker clean
 
 install:
-	pip install -e ".[dev,serve]" --extra-index-url https://download.pytorch.org/whl/cpu
+	pip install "torch>=2.6" --index-url https://download.pytorch.org/whl/cpu
+	pip install -e ".[dev,serve]"
 
 data:
 	python scripts/build_dataset.py
@@ -29,7 +30,7 @@ serve:
 
 docker:
 	docker build -t nxdomain-sentinel:local .
-	docker run --rm -p 8080:8080 nxdomain-sentinel:local
+	docker run --rm -p 127.0.0.1:8080:8080 nxdomain-sentinel:local
 
 clean:
 	rm -rf artifacts/*.pt data/processed .pytest_cache

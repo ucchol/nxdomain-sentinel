@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -26,14 +27,24 @@ def main():
     parser.add_argument("--calibration-end", type=int, required=True, help="Unix seconds")
     parser.add_argument("--test-start", type=int, required=True, help="Unix seconds")
     parser.add_argument("--alerts-per-1000-device-days", type=float, required=True)
+    parser.add_argument("--model", type=Path, help="same serving artifact used for replay")
     parser.add_argument("--min-distinct", type=int, default=5)
     args = parser.parse_args()
     try:
         calibration = list(read_rows(args.features))
         test = list(read_rows(args.test_features)) if args.test_features else calibration
+        known_families = None
+        if args.model:
+            from nxsentinel.serve.predictor import Predictor
+
+            predictor = Predictor.load(args.model, os.getenv("NXS_MODEL_SHA256"))
+            if any(row.get("model_sha256") != predictor.artifact_sha256
+                   for rows in (calibration, test) for row in rows):
+                raise ValueError("model artifact does not match the replay output")
+            known_families = predictor.families
         result = compare(
             calibration, test, read_rows(args.labels), args.calibration_end, args.test_start,
-            args.alerts_per_1000_device_days, args.min_distinct,
+            args.alerts_per_1000_device_days, args.min_distinct, known_families,
         )
     except (OSError, ValueError, KeyError, TypeError) as exc:
         parser.error(str(exc))

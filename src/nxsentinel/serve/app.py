@@ -24,15 +24,19 @@ import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
 from .predictor import Predictor, Verdict
 
 MODEL_PATH = Path(os.getenv("NXS_MODEL_PATH", "artifacts/serving_model.pt"))
 MAX_BATCH = int(os.getenv("NXS_MAX_BATCH", "500"))
+MAX_BODY_BYTES = 1024 * 1024
+DomainInput = Annotated[str, Field(max_length=253)]
 
 _predictor: Predictor | None = None
 
@@ -46,7 +50,7 @@ def get_predictor() -> Predictor:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _predictor
-    _predictor = Predictor.load(MODEL_PATH)
+    _predictor = Predictor.load(MODEL_PATH, os.getenv("NXS_MODEL_SHA256"))
     # One throwaway inference at startup. The first call through torch pays for
     # lazy kernel setup, and paying it here rather than on a user's request is
     # the difference between a 400 ms cold start and a 2 s one.
@@ -63,12 +67,50 @@ app = FastAPI(
 )
 
 
+class ScoreBodyLimit:
+    """Bound JSON request bytes before parsing, including chunked uploads."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or scope["path"] not in {"/v1/score", "/v1/score/batch",
+                                     "/v1/score/", "/v1/score/batch/"}
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > MAX_BODY_BYTES:
+                await JSONResponse({"detail": "request body too large"}, 413)(scope, receive, send)
+                return
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+
+        async def replay():
+            return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+        await self.app(scope, replay, send)
+
+
+app.add_middleware(ScoreBodyLimit)
+
+
 class ScoreRequest(BaseModel):
-    domain: str = Field(..., examples=["mortiscontrastatim.com"], max_length=253)
+    domain: DomainInput = Field(examples=["mortiscontrastatim.com"])
 
 
 class BatchRequest(BaseModel):
-    domains: list[str] = Field(..., max_length=MAX_BATCH)
+    domains: list[DomainInput] = Field(..., max_length=MAX_BATCH)
 
 
 class ScoreResponse(BaseModel):
@@ -88,6 +130,7 @@ class BatchResponse(BaseModel):
     count: int
     inference_ms: float
     model_version: str
+    model_sha256: str | None = None
 
 
 def _to_response(v: Verdict) -> ScoreResponse:
@@ -130,6 +173,7 @@ def score_batch(req: BatchRequest) -> BatchResponse:
         count=len(verdicts),
         inference_ms=round(elapsed, 3),
         model_version=p.version,
+        model_sha256=p.artifact_sha256,
     )
 
 

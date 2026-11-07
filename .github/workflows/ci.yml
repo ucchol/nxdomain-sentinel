@@ -19,9 +19,8 @@ jobs:
       # would download on every run for no benefit.
       - name: Install
         run: |
-          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
-            torch numpy pandas scikit-learn tldextract pyarrow
-          pip install pytest ruff fastapi "uvicorn[standard]" pydantic httpx
+          pip install "torch>=2.6" --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev,serve]"
 
       - name: Lint
         run: ruff check src/ scripts/ tests/
@@ -33,8 +32,25 @@ jobs:
       # selection silently pulls CUDA and the container stops fitting.
       - name: Build image
         run: |
-          mkdir -p artifacts && touch artifacts/serving_model.pt
+          mkdir -p artifacts
+          python - <<'PYTHON'
+          import runpy
+          from pathlib import Path
+          runpy.run_path("tests/test_serve.py")["_artifact"](Path("artifacts"), gate_auc=0.53)
+          PYTHON
           docker build -t nxs:ci .
           SIZE=$(docker image inspect nxs:ci --format='{{.Size}}')
           echo "image size: $((SIZE/1024/1024)) MB"
           test "$SIZE" -lt 900000000 || { echo "image exceeds 900 MB budget"; exit 1; }
+
+      - name: Smoke-test the image
+        run: |
+          DIGEST=$(sha256sum artifacts/serving_model.pt | cut -d' ' -f1)
+          docker run --rm -d --name nxs-ci -p 127.0.0.1:8080:8080 \
+            -e "NXS_MODEL_SHA256=$DIGEST" nxs:ci
+          trap 'docker logs nxs-ci; docker stop nxs-ci' EXIT
+          curl -fsS --retry 20 --retry-connrefused --retry-delay 1 \
+            http://127.0.0.1:8080/readyz
+          curl -fsS -X POST http://127.0.0.1:8080/v1/score/batch \
+            -H 'Content-Type: application/json' -d '{"domains":["example.com"]}' |
+            grep -q '"above_novelty_threshold"'
