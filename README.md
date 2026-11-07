@@ -19,6 +19,17 @@ This repository measures that, and the answer is not flattering to anybody.
 
 ---
 
+## Development progress
+
+- **Independent novelty signal implemented.** Both scoring endpoints return
+  `above_novelty_threshold` for every scored domain. It measures distance from
+  known DGA families and is `null` for unparseable input. `is_novel` retains
+  its original meaning: the domain crossed both the DGA and novelty thresholds.
+- **Benign novelty evaluation added.** Run `make eval` with trained checkpoints
+  to report benign sample counts above the standalone and combined thresholds
+  for each fold and partition. Calibration uses known DGA samples in validation.
+  The checked-in results predate this evaluation.
+
 ## Headline result
 
 **Holding a family out costs a median 5.6 points of recall and a mean 14.9
@@ -146,7 +157,8 @@ curl -X POST https://<service>/v1/score \
   "dga_probability": 0.998,
   "nearest_family": "corebot",
   "novelty_score": 84.2,
-  "is_novel": false
+  "is_novel": false,
+  "above_novelty_threshold": false
 }
 ```
 
@@ -185,16 +197,13 @@ jq -Rn '{domains: [inputs]}' < domains.txt | \
   jq -r '.results[] | select(.verdict=="dga") | [.domain, .dga_probability, .nearest_family] | @tsv'
 ```
 
-### Watch the novelty flag, not just the verdict
+### Inspect novelty alongside DNS behavior
 
-`is_novel` is the field worth alerting on. A high-confidence hit that matches a
-known family is a signature match your existing blocklist probably already
-covers. A high-confidence hit sitting far from every known centroid is a
-candidate campaign nobody has written a signature for yet. That is the alert
-worth a human.
-
-The suppobox case is the argument for it: the classifier scores that family at
-0.0000 while the gate flags it at 0.8802.
+Use `above_novelty_threshold` to inspect distances even when the DGA score is
+low. A domain that crosses the distance threshold may be an unfamiliar benign
+name. Repeated behavior and corroborating evidence can make it worth
+investigating. Suppobox's reported 34% is the standalone offline flag rate at a
+5% flag rate among known DGAs.
 
 ### Pre-filter before expensive analysis
 

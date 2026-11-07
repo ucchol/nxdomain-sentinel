@@ -38,6 +38,7 @@ class Verdict:
     nearest_family: str | None
     novelty_score: float | None
     is_novel: bool
+    above_novelty_threshold: bool | None = None
     note: str | None = None
 
     def to_dict(self) -> dict:
@@ -51,6 +52,7 @@ class Verdict:
                 round(self.novelty_score, 4) if self.novelty_score is not None else None
             ),
             "is_novel": self.is_novel,
+            "above_novelty_threshold": self.above_novelty_threshold,
             "note": self.note,
         }
 
@@ -131,6 +133,7 @@ class Predictor:
 
             for k, i in enumerate(valid):
                 is_dga = bool(probs[k] >= self.threshold)
+                above_novelty_threshold = bool(dists[k] >= self.novelty_threshold)
                 out[i] = Verdict(
                     domain=domains[i],
                     core=cores[k],
@@ -138,7 +141,8 @@ class Predictor:
                     dga_probability=float(probs[k]),
                     nearest_family=nearest[k] if is_dga else None,
                     novelty_score=float(dists[k]),
-                    is_novel=bool(is_dga and dists[k] >= self.novelty_threshold),
+                    is_novel=is_dga and above_novelty_threshold,
+                    above_novelty_threshold=above_novelty_threshold,
                     note=note,
                 )
 

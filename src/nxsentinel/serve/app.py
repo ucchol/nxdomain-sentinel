@@ -79,6 +79,7 @@ class ScoreResponse(BaseModel):
     nearest_family: str | None
     novelty_score: float | None
     is_novel: bool
+    above_novelty_threshold: bool | None = None
     note: str | None = None
 
 

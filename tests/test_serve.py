@@ -129,3 +129,20 @@ class TestHonestyAboutTheGate:
         with TestClient(app) as c:
             b = c.post("/v1/score", json={"domain": "mortiscontrastatim.com"}).json()
             assert b["note"] is None
+
+
+def test_novelty_can_cross_threshold_without_dga_verdict(client):
+    from nxsentinel.serve.app import get_predictor
+
+    predictor = get_predictor()
+    predictor.threshold = 1.1
+    predictor.novelty_threshold = -1.0
+    domain = "mortiscontrastatim.com"
+    single = client.post("/v1/score", json={"domain": domain}).json()
+    batch = client.post("/v1/score/batch", json={"domains": [domain, "!!!"]}).json()
+
+    assert single["verdict"] == "benign"
+    assert single["is_novel"] is False
+    assert single["above_novelty_threshold"] is True
+    assert batch["results"][0] == single
+    assert batch["results"][1]["above_novelty_threshold"] is None
