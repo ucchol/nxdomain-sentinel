@@ -75,7 +75,7 @@ def main() -> int:
         df[c] = df[c].astype("category")
     (split,) = S.family_holdout_folds(df, k=args.k, seed=args.seed, only=[args.fold])
 
-    ck = torch.load(ckpt, weights_only=False, map_location="cpu")
+    ck = torch.load(ckpt, weights_only=True, map_location="cpu")
     model = CharCNN(CharCNNConfig.from_dict(ck["config"]))
     model.load_state_dict(ck["state_dict"])
     model.eval()
@@ -118,13 +118,13 @@ def main() -> int:
         out,
     )
 
-    digest = hashlib.sha256(out.read_bytes()).hexdigest()[:16]
+    digest = hashlib.sha256(out.read_bytes()).hexdigest()
     print(f"wrote {out}  ({out.stat().st_size / 1e6:.2f} MB, sha256:{digest})")
     print(f"  decision threshold   {threshold:.6f}  (calibrated at {args.target_fpr:.3%} FPR)")
     print(f"  novelty threshold    {novelty_threshold:.4f}  (p{args.novelty_percentile:.0f} of known)")
     print(f"  families             {len(ck['families'])}")
     print(
-        f"  gate auc             "
+        "  gate auc             "
         + (f"{gate_auc:.4f}" if gate_auc else "unknown, run scripts/evaluate.py")
     )
     if gate_auc is not None and gate_auc < 0.70:

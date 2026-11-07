@@ -150,13 +150,14 @@ function render(r){
   out.innerHTML=`<div class="answer ${r.verdict}">
     <div class="decomp">${decompose(r.domain,r.core)}</div>
     <div class="decomp-note">struck-through text is the public suffix, removed before the model reads anything</div>
-    <div class="verdict ${r.verdict}">${isDga?'algorithmically generated':'looks registered by a human'}</div>
+    <div class="verdict ${r.verdict}">${isDga?'above DGA threshold':'below DGA threshold'}</div>
     <dl>
-      <dt>confidence</dt><dd>${pct}%<div class="bar"><span style="width:${pct}%;background:var(--${r.verdict})"></span></div></dd>
+      <dt>DGA score</dt><dd>${pct}%<div class="bar"><span style="width:${pct}%;background:var(--${r.verdict})"></span></div></dd>
       ${isDga&&r.nearest_family?`<dt>closest family</dt><dd>${esc(r.nearest_family)}</dd>`:''}
       ${r.novelty_score!=null?`<dt>distance from known</dt><dd>${r.novelty_score}</dd>`:''}
     </dl>
-    ${r.note&&isDga?`<div class="flag ${r.is_novel?'on':''}">${esc(r.note)}</div>`:''}
+    ${r.above_novelty_threshold?`<div class="flag on">Above the known-family distance threshold</div>`:''}
+    ${r.note?`<div class="flag ${r.is_novel?'on':''}">${esc(r.note)}</div>`:''}
   </div>`;
 }
 

@@ -129,3 +129,46 @@ class TestHonestyAboutTheGate:
         with TestClient(app) as c:
             b = c.post("/v1/score", json={"domain": "mortiscontrastatim.com"}).json()
             assert b["note"] is None
+
+
+def test_novelty_can_cross_threshold_without_dga_verdict(client):
+    from nxsentinel.serve.app import get_predictor
+
+    predictor = get_predictor()
+    predictor.threshold = 1.1
+    predictor.novelty_threshold = -1.0
+    domain = "mortiscontrastatim.com"
+    single = client.post("/v1/score", json={"domain": domain}).json()
+    batch = client.post("/v1/score/batch", json={"domains": [domain, "!!!"]}).json()
+
+    assert single["verdict"] == "benign"
+    assert single["is_novel"] is False
+    assert single["above_novelty_threshold"] is True
+    assert batch["results"][0] == single
+    assert batch["results"][1]["above_novelty_threshold"] is None
+
+
+def test_batch_rejects_oversized_domain(client):
+    response = client.post("/v1/score/batch", json={"domains": ["a" * 254]})
+    assert response.status_code == 422
+
+
+def test_scoring_rejects_oversized_body_before_parsing(client):
+    response = client.post(
+        "/v1/score", content=iter([b" " * 600_000, b" " * 600_000]),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 413
+
+
+def test_model_digest_is_verified(tmp_path):
+    import hashlib
+
+    from nxsentinel.serve.predictor import Predictor
+
+    artifact = _artifact(tmp_path, gate_auc=0.53)
+    expected = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    assert Predictor.load(artifact, expected).artifact_sha256 == expected
+    artifact.write_bytes(artifact.read_bytes() + b"changed")
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        Predictor.load(artifact, expected)

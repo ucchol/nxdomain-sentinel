@@ -49,7 +49,7 @@ def load_dataset() -> pd.DataFrame:
 
 
 def load_checkpoint(path: Path):
-    ck = torch.load(path, weights_only=False)
+    ck = torch.load(path, weights_only=True, map_location="cpu")
     model = CharCNN(CharCNNConfig.from_dict(ck["config"]))
     model.load_state_dict(ck["state_dict"])
     model.eval()

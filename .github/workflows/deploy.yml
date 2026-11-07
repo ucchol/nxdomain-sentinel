@@ -1,13 +1,8 @@
 name: deploy
 
 on:
-  push:
-    branches: [main]
-    paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
 
-# Workload Identity Federation rather than a long-lived service account key.
-# No JSON credential is ever stored in this repository.
 permissions:
   contents: read
   id-token: write
@@ -20,6 +15,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    env:
+      PROJECT: ${{ secrets.GCP_PROJECT }}
+      MODEL_SHA256: ${{ vars.MODEL_SHA256 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,35 +28,56 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Fetch model artifact
+      - name: Fetch and verify model
+        env:
+          MODEL_URI: ${{ secrets.MODEL_URI }}
         run: |
+          [[ "$MODEL_SHA256" =~ ^[0-9a-f]{64}$ ]]
           mkdir -p artifacts
-          gcloud storage cp "${{ secrets.MODEL_URI }}" artifacts/serving_model.pt
+          gcloud storage cp "$MODEL_URI" artifacts/serving_model.pt
+          printf '%s  %s\n' "$MODEL_SHA256" artifacts/serving_model.pt | sha256sum --check
 
       - name: Build and push
         run: |
-          IMAGE="${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${SERVICE}/${SERVICE}:${GITHUB_SHA::7}"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${SERVICE}/${SERVICE}:${GITHUB_SHA::7}-${GITHUB_RUN_ID}"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
-      - name: Deploy
+      - name: Deploy private service
+        id: deploy
         run: |
-          gcloud run deploy "$SERVICE" \
+          gcloud run deploy "$SERVICE" --project "$PROJECT" \
             --image "$IMAGE" --region "$REGION" \
-            --cpu 1 --memory 512Mi --concurrency 80 \
+            --cpu 1 --memory 512Mi --concurrency 4 \
             --min-instances 0 --max-instances 4 \
-            --cpu-throttling --allow-unauthenticated --quiet
+            --cpu-throttling --invoker-iam-check --no-allow-unauthenticated \
+            --update-env-vars "NXS_MODEL_SHA256=$MODEL_SHA256" --quiet
+          URL=$(gcloud run services describe "$SERVICE" --project "$PROJECT" \
+            --region "$REGION" --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      # A deploy that returns a URL but serves errors is not a successful deploy.
-      - name: Smoke test
+      - uses: google-github-actions/auth@v2
+        id: invoke
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.DEPLOY_SA }}
+          token_format: id_token
+          id_token_audience: ${{ steps.deploy.outputs.url }}
+          id_token_include_email: true
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Verify private access and authenticated scoring
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+          TOKEN: ${{ steps.invoke.outputs.id_token }}
         run: |
-          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
-          echo "deployed to $URL"
-          curl -fsS "$URL/healthz" > /dev/null
-          curl -fsS "$URL/readyz"  > /dev/null
-          curl -fsS -X POST "$URL/v1/score" \
-            -H 'Content-Type: application/json' \
-            -d '{"domain":"mortiscontrastatim.com"}' | tee /dev/stderr | grep -q '"verdict"'
+          STATUS=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "$URL/readyz")
+          [[ "$STATUS" == 401 || "$STATUS" == 403 ]]
+          curl -fsS --max-time 30 -H "Authorization: Bearer $TOKEN" "$URL/readyz" > /dev/null
+          curl -fsS --max-time 30 -X POST "$URL/v1/score" \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d '{"domain":"mortiscontrastatim.com"}' | grep -q '"verdict"'
           echo "$URL" >> "$GITHUB_STEP_SUMMARY"

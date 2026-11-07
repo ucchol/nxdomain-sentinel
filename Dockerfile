@@ -10,12 +10,14 @@ COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
 RUN pip install --no-cache-dir --target=/deps \
-      --extra-index-url https://download.pytorch.org/whl/cpu \
-      torch numpy pandas scikit-learn tldextract \
+      --index-url https://download.pytorch.org/whl/cpu "torch>=2.6" \
+ && PYTHONPATH=/deps pip install --no-cache-dir --target=/deps \
+      numpy "tldextract==5.4.0" \
       fastapi "uvicorn[standard]" pydantic \
  && find /deps -name "__pycache__" -type d -exec rm -rf {} + \
  && find /deps -name "*.pyc" -delete \
  && find /deps -name "tests" -type d -prune -exec rm -rf {} + \
+ && find /deps/torch/bin -maxdepth 1 -type f ! -name torch_shm_manager -delete \
  && rm -rf /deps/torch/test /deps/torch/include
 
 FROM python:3.12-slim
@@ -41,5 +43,5 @@ EXPOSE 8080
 
 # One worker, one thread. The instance has one vCPU; extra workers would
 # multiply the resident model and contend for the same core.
-CMD exec uvicorn nxsentinel.serve.app:app \
+CMD exec python -m uvicorn nxsentinel.serve.app:app \
       --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --log-level warning

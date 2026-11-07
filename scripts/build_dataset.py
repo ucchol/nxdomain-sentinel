@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from importlib.metadata import version
 import sys
 from pathlib import Path
 
@@ -32,23 +33,30 @@ def main() -> int:
     args = ap.parse_args()
 
     print("fetching sources", flush=True)
-    raw = sources.fetch_all(force=args.force_download)
+    try:
+        raw = sources.fetch_all(force=args.force_download)
+    except ValueError as exc:
+        ap.error(str(exc))
     for k, v in raw.items():
         print(f"  {k:32s} {v}")
 
     print("building canonical table", flush=True)
     df, report = build_mod.build(raw, benign_limit=args.benign_limit)
+    report["sources"] = {source.key: source.revision for source in sources.ALL_SOURCES}
+    report["tldextract_version"] = version("tldextract")
 
     print("checking cross-source isolation", flush=True)
     splits.assert_cross_source_clean(df)
 
     print(f"building {args.folds} family-holdout folds", flush=True)
-    folds = splits.family_holdout_folds(df, k=args.folds, seed=args.seed)
-    rnd = splits.random_split(df, seed=args.seed)
-
+    fold_summaries = []
+    for fold in range(args.folds):
+        (split,) = splits.family_holdout_folds(df, k=args.folds, seed=args.seed, only=[fold])
+        fold_summaries.append(split.summary())
+        del split
     report["splits"] = {
-        "random": rnd.summary(),
-        "family_holdout": [f.summary() for f in folds],
+        "random": splits.random_split(df, seed=args.seed).summary(),
+        "family_holdout": fold_summaries,
     }
     report["totals"] = {
         "rows": int(len(df)),

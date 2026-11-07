@@ -146,9 +146,25 @@ def evaluate_fold(model, ood, split, cross) -> dict:
             [cross["cross_dga"], cross["cross_benign"]], ignore_index=True
         ),
     }
+    known_validation = split.val.loc[split.val["label"] == 1, "core"].tolist()
+    novelty_threshold = float(np.quantile(
+        ood.score(collect_embeddings(model, known_validation)), 0.95
+    ))
+    res["novelty_threshold"] = novelty_threshold
+    res["benign_novelty"] = {}
     for name, df in parts.items():
         scores = model.predict_proba(df["core"].tolist()).numpy()
         res[name] = binary_metrics(df["label"], scores, thresholds)
+        benign = df["label"].to_numpy() == 0
+        distances = ood.score(collect_embeddings(model, df.loc[benign, "core"].tolist()))
+        high_novelty = distances >= novelty_threshold
+        res["benign_novelty"][name] = {
+            "n_benign": int(benign.sum()),
+            "above_novelty_threshold": int(high_novelty.sum()),
+            "above_both_thresholds": int(
+                (high_novelty & (scores[benign] >= thresholds["fpr0.1%"])).sum()
+            ),
+        }
         fam = per_family_recall(df, scores, thresholds["fpr0.1%"])
         if name == "test_seen":
             # Hoisted to the top level because the paired analysis reads it as

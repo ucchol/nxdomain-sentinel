@@ -1,28 +1,84 @@
 # nxdomain-sentinel
 
-A domain threat classifier that is scored on malware families it has never seen,
-and that reports how much that costs.
+NXDOMAIN Sentinel is an open-source research prototype for investigating
+domain generation algorithm (DGA) activity in DNS logs. It scores failed
+lookups, groups the evidence by device and time window, and emits JSONL cases
+for analyst review. The benchmark compares alert policies on later labeled
+windows using thresholds set under a shared calibration alert budget.
 
-Published DGA detectors routinely report accuracy above 0.99. That number is
-close to meaningless, because it is measured on a random shuffle where every
-malware family appears in both training and test. It answers "can you recognise
-a family you were trained on", which a signature list already answers. The
-question a SOC has is whether the detector fires on a family that did not exist
-when the model was trained.
+[Try the synthetic benchmark](#try-the-synthetic-benchmark) ·
+[Replay DNS logs](#replay-dns-logs-for-triage) ·
+[Review the historical results](#headline-result)
 
-This repository measures that, and the answer is not flattering to anybody.
+## From DNS logs to an investigation case
 
-> **Status.** All five folds trained and evaluated. Service, container and
-> infrastructure written and tested. Not yet deployed to a live URL. Numbers
-> below come from a small model trained on one CPU core for six epochs, so they
-> are a floor rather than a ceiling.
+```mermaid
+flowchart TD
+    Logs["Timestamped DNS responses"] --> Group["Group by device and time window"]
+    Group --> Score["Score distinct NXDOMAIN names"]
+    Score --> Model["DGA score and novelty distance"]
+    Score --> Words["Optional word-pair signal"]
+    Model --> Rule["Apply device-window alert thresholds"]
+    Words --> Rule
+    Rule --> Case["Emit a JSONL investigation case"]
+```
 
----
+NXDOMAIN is the DNS response indicating that a queried name does not exist.
+The DGA score measures how generated a name looks. Novelty measures how far
+its embedding is from known DGA families and can be high even when its DGA
+score is low. The replay combines those signals with multiple distinct failed
+lookups from the same device. A case can include the flagged names, query
+counts, timestamps, and scores that prompted review.
+
+| Evidence | Status |
+|---|---|
+| Historical domain classifier | Five family-held-out folds evaluated on the public corpus |
+| Replay, scoring API, and benchmark | Exercised locally, including a replay with synthetic DNS traffic |
+| Benefit of novelty and word pairs on real networks | Pending a pilot with authorized resolver logs and reviewed case labels |
+| Private Cloud Run service | Deployment workflow prepared. Live verification pending |
+
+## Development progress
+
+- **Independent novelty signal implemented.** Both scoring endpoints return
+  `above_novelty_threshold` for every scored domain. It measures distance from
+  known DGA families and is `null` for unparseable input. `is_novel` retains
+  its original meaning: the domain crossed both the DGA and novelty thresholds.
+- **Benign novelty evaluation added.** Run `make eval` with trained checkpoints
+  to report benign sample counts above the standalone and combined thresholds
+  for each fold and partition. Calibration uses known DGA samples in validation.
+  The checked-in results predate this evaluation.
+
+- **Alert-only DNS replay implemented.** A local command groups DNS responses
+  by pseudonymous device and time window, scores distinct NXDOMAIN names, and
+  emits JSONL cases for investigation or SIEM ingestion. The initial rules are
+  pilot defaults awaiting calibration on authorized resolver telemetry.
+
+- **Forward-in-time replay benchmark implemented.** The existing paired
+  family holdout stays in place. The replay benchmark compares five detection
+  policies under one calibration budget, with later labeled device windows
+  and an optional second network. No pilot performance is claimed yet.
+
+- **Dictionary-DGA experiment implemented.** An optional word segmentation
+  and word-pair signal participates in the same replay and alert-budget
+  benchmark. Its effect on real dictionary families still needs measurement.
+
+- **Deployment hardening implemented.** Requests are size-limited, the
+  serving checkpoint is verified by SHA-256 in Cloud Run, and deployment
+  is private and manually triggered. Source revisions and the public suffix
+  snapshot dependency are pinned for new builds. Live cloud verification is
+  pending environment setup.
 
 ## Headline result
 
 **Holding a family out costs a median 5.6 points of recall and a mean 14.9
-points**, at a fixed 0.1% false positive rate.
+points** across 25 families, using the threshold calibrated for a 0.1% false
+positive rate. This is the historical domain-level result.
+
+![Historical domain recall for the five largest family-holdout losses and three dictionary families](docs/figures/family-holdout-recall.svg)
+
+*Figure source* [Checked-in paired family results](artifacts/analysis.json).
+Vawtrak recall fell from 70.2% with the family in training to 1.5% with the
+family held out. The lower three rows show the dictionary-based families.
 
 That gap is measured by pairing. Every family is held out in exactly one fold
 and trained in the other four, so each family is compared against *itself*.
@@ -49,29 +105,26 @@ Most families transfer nearly free. A handful collapse completely. A single
 averaged number hides which is which, which is why the per-family table is the
 result and the mean is a footnote.
 
-## The finding I did not expect
+## Dictionary-based families
 
-**The classifier cannot detect dictionary-based DGAs at all, trained or not.**
+The historical character CNN had low recall on the three dictionary-based
+families even when those families were represented in training.
 
 suppobox, matsnu and gozi build domains by concatenating real words, so their
 output looks like ordinary registered names. Recall on suppobox is 0.0000 when
 held out, and 0.0028 when it is sitting *in the training set*. matsnu reaches
 0.1382 trained. gozi reaches 0.2244 trained.
 
-This is not a generalisation failure. At this capacity the character CNN has no
-representation for "real words in an order a human would not choose", and
-holding the family out costs almost nothing because there was nothing to lose.
-Any honest DGA detector should report dictionary families separately rather than
-letting 22 easy random-string families carry the average.
+The word-pair feature in the replay is an experiment motivated by this gap.
+The family-level results show which families warrant separate evaluation.
 
 ---
 
 ## The novelty gate
 
-A binary score answers "does this look generated". It cannot answer "is this a
-family I have seen before", and for a defender those are different questions. A
-confident hit on a known family is a signature match. A confident hit far from
-every known family is a candidate novel campaign.
+The classifier estimates whether a name resembles a generated domain. The
+novelty gate measures distance from the known-family clusters. Nearest-family
+similarity can support investigation alongside other evidence.
 
 The gate fits one Gaussian per known family in the classifier's penultimate
 space with a pooled, shrunk covariance, and scores Mahalanobis distance to the
@@ -80,22 +133,15 @@ nearest centroid. No OOD data is needed to fit it.
 **Median per-family AUC 0.7211. Fourteen of 25 families above 0.70, eight below
 0.50.**
 
-I initially reported this gate as performing at chance. That was wrong, and the
-error is worth recording because it was a measurement bug rather than a model
-bug. I was pooling all five held-out families in a fold into one AUC. Four of
-fold 1's five families are random-string families whose style is well
-represented in training, so they are genuinely *not* novel and the gate
-correctly said so. Averaging four correct "not novel" verdicts against one real
-novelty produced 0.5237, which reads as broken.
+Fold 1 had a pooled AUC of 0.5237. Per-family values ranged from 0.3111 on
+Emotet to 0.8802 on Suppobox. That spread shows how differently the gate
+ranked individual held-out families against the known-DGA reference.
 
-Per family, fold 1 decomposes to suppobox 0.8802, pykspa 0.7354, tinba 0.3705,
-ranbyus 0.3213, emotet 0.3111. The pooled number was not a weak signal, it was
-the wrong measurement.
-
-**The gate catches what the classifier misses.** suppobox is the clearest case:
-recall 0.0000, gate AUC 0.8802, 34% flagged at a 5% false positive rate. The
-component that fails and the component that fires are looking at different
-things, which is the whole argument for having both.
+**The standalone gate adds a different signal.** In the offline Suppobox
+comparison, classifier recall was 0.0000 and gate AUC was 0.8802. The novelty
+score alone flagged 34% of Suppobox samples at a cutoff that flagged 5% of the
+known-DGA reference. The replay benchmark measures whether this signal helps
+with benign background traffic and a limited alert budget.
 
 ### Where the style hypothesis stands
 
@@ -146,7 +192,8 @@ curl -X POST https://<service>/v1/score \
   "dga_probability": 0.998,
   "nearest_family": "corebot",
   "novelty_score": 84.2,
-  "is_novel": false
+  "is_novel": false,
+  "above_novelty_threshold": false
 }
 ```
 
@@ -162,39 +209,121 @@ lookup in disguise.
 
 ---
 
-## What you can actually do with it
+## Usage
 
-### Triage resolver logs
+### Try the synthetic benchmark
 
-The batch endpoint exists because DNS triage is inherently a batch problem. Pull
-the NXDOMAIN responses out of a day of resolver logs and score them in chunks of
-500. Infected hosts running a DGA generate hundreds of failed lookups an hour,
-so the signal shows up as a cluster of high-confidence hits from one source
-address rather than as any single domain.
+From a clean checkout, this demo runs with Python and two small fixtures.
 
 ```bash
-# one domain
-curl -sX POST http://localhost:8080/v1/score \
-  -H 'Content-Type: application/json' \
-  -d '{"domain":"mortiscontrastatim.com"}'
-
-# a file of domains, 500 at a time
-jq -Rn '{domains: [inputs]}' < domains.txt | \
-  curl -sX POST http://localhost:8080/v1/score/batch \
-       -H 'Content-Type: application/json' -d @- | \
-  jq -r '.results[] | select(.verdict=="dga") | [.domain, .dga_probability, .nearest_family] | @tsv'
+python scripts/benchmark_replay.py docs/examples/synthetic-windows.jsonl \
+  docs/examples/synthetic-labels.jsonl --calibration-end 300 --test-start 86400 \
+  --alerts-per-1000-device-days 500
 ```
 
-### Watch the novelty flag, not just the verdict
+The earlier windows set the thresholds. The later windows contain one
+fictional dictionary-DGA episode and two reviewed benign cases. The scripted
+DGA score misses the episode. The novelty signal catches it and also flags a
+benign lookalike.
 
-`is_novel` is the field worth alerting on. A high-confidence hit that matches a
-known family is a signature match your existing blocklist probably already
-covers. A high-confidence hit sitting far from every known centroid is a
-candidate campaign nobody has written a signature for yet. That is the alert
-worth a human.
+| Policy | Test alerts | Toy episodes found | Reviewed precision |
+|---|---:|---:|---:|
+| Behavior only | 0 | 0 of 1 | — |
+| CNN only | 1 | 0 of 1 | 0% |
+| Novelty only | 2 | 1 of 1 | 50% |
+| CNN + novelty | 3 | 1 of 1 | 33% |
+| CNN + novelty + behavior | 2 | 1 of 1 | 50% |
 
-The suppobox case is the argument for it: the classifier scores that family at
-0.0000 while the gate flags it at 0.8802.
+The counts come from [synthetic device windows](docs/examples/synthetic-windows.jsonl)
+and [synthetic labels](docs/examples/synthetic-labels.jsonl). They illustrate
+how the benchmark reports detection and alert volume when policies are
+calibrated on one period and tested on a later one.
+
+### Replay DNS logs for triage
+
+With a trusted model from `make export`:
+
+```bash
+export NXS_REPLAY_HMAC_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+python scripts/replay_dns.py dns.jsonl > cases.jsonl
+```
+
+Input is timestamp-ordered [Zeek JSON DNS logs](https://docs.zeek.org/en/master/reference/logs/dns.html)
+from the client side of the resolver, or normalized JSONL with Unix seconds
+`ts`, string `client`, string `query`, and numeric `rcode`.
+For Unbound, convert dnstap client responses to the normalized format first.
+Only RCODE 3 is scored. All usable responses contribute to window totals.
+Entries without a query or response code are skipped and counted on stderr.
+
+The default rule emits one case per device per five-minute window when at
+least five different names returned NXDOMAIN and at least two crossed the
+classifier or standalone novelty threshold. `--all-windows` includes
+non-alert windows for evaluation. Case IDs are stable for the same key,
+device identifier and window size. Retain the secret across replays of one
+dataset and isolate it per environment. Case evidence includes raw query
+names and first/last query times. Use `--evidence-limit 0` to emit counts
+without query names. Keep logs and cases local with restricted access and
+limited retention.
+If a replay exits with an error, discard its partial output.
+
+### Benchmark a replay
+
+Run the replay with `--all-windows` so device-day exposure includes quiet
+windows. Use a reviewed labels JSONL file keyed by `case_id`. Reviewed benign
+windows have `"status":"benign"`. Malicious windows have `"status":"malicious"`
+and include `episode_id`, `episode_start` (Unix seconds), `family`, and
+`style` (for example `dictionary`). Include all observable windows of known
+test episodes, even when the replay did not alert. Leave unreviewed windows
+unlabeled. Add authorized dictionary-DGA captures to this test as a distinct
+cohort, with benign lookalikes in the background.
+
+```bash
+python scripts/replay_dns.py dns.jsonl --all-windows > windows.jsonl
+python scripts/benchmark_replay.py windows.jsonl labels.jsonl \
+  --calibration-end 1764547200 --test-start 1764547200 \
+  --alerts-per-1000-device-days 10 > benchmark.json
+```
+
+Use cutoffs appropriate for your capture. Complete earlier windows set the
+threshold for each policy under the same budget. Score ties stay together,
+which can leave part of the budget unused. Later windows are scored with
+frozen thresholds, so realized alert rates can differ. For a second network,
+pass `--test-features other-windows.jsonl` scored with the same model and
+window duration. Device-days count observed devices per UTC window-start day.
+
+The report includes reviewed-case precision, unreviewed alerts, confirmed
+false alerts per 1,000 device-days, episode counts by family and style, and
+median delay to the first alert among detected episodes that started during
+the test. Pass `--model artifacts/serving_model.pt` for a seen versus unseen
+family breakdown based on that exact artifact. Use family labels consistent
+with the training corpus. Confirmed false alerts are a lower bound with partial review.
+The checked-in family-held-out domain results are separate from this replay.
+
+### Run the dictionary-DGA experiment
+
+Build a lexical artifact with a fixed, licensed English word list and a
+separate benign reference collected before the calibration and test windows.
+Both input files have one entry per line. Record their versions and hashes
+with the experiment.
+
+```bash
+python scripts/build_lexicon.py words.txt earlier-benign-domains.txt artifacts/lexicon.json
+python scripts/replay_dns.py dns.jsonl --lexicon artifacts/lexicon.json --all-windows > windows.jsonl
+```
+
+The feature segments the registrable label into words and flags adjacent pairs
+absent from the benign reference. Re-run the benchmark with these windows
+to compare the fused rule with and without the lexical signal. The report
+records the artifact SHA-256. Benign brands and compound names can trigger
+this signal, so review the added alerts alongside dictionary-family recall.
+
+### Inspect novelty alongside DNS behavior
+
+Use `above_novelty_threshold` to inspect distances even when the DGA score is
+low. A domain that crosses the distance threshold may be an unfamiliar benign
+name. Repeated behavior and corroborating evidence can make it worth
+investigating. Suppobox's reported 34% is the standalone offline flag rate at a
+5% flag rate among known DGAs.
 
 ### Pre-filter before expensive analysis
 
@@ -218,43 +347,49 @@ seen one, and the reason is entirely about which families landed where. It is a
 compact demonstration of why a single held-out split cannot answer a
 generalisation question.
 
-### What it is not
+## Private deployment and latency
 
-- **Not a replacement for a commercial feed.** No passive DNS, no registration
-  age, no hosting reputation, no TLS certificate signals. It reads the string
-  and nothing else.
-- **Blind to dictionary DGAs.** suppobox, matsnu and gozi pass through. If your
-  threat model includes them, this is not sufficient on its own.
-- **No IOC context.** It tells you a name looks generated. It does not tell you
-  which malware family is on which host or what to do next.
-- **Trained on a 2019-era corpus.** Benign naming conventions drift. Retrain
-  against a current top-domains list before trusting the false positive rate.
+CI starts the built image, waits for readiness, and checks batch scoring.
+The image starts Uvicorn through Python, and CI captures container logs
+before removing the test container.
 
----
+Cloud Run uses authenticated invocation. Grant `roles/run.invoker` to
+specific principals, including the deployment service account used by the
+smoke test. With Terraform, use `invoker_members` and supply
+`model_sha256` for the artifact inside the image.
 
-## Infrastructure
+The GitHub Actions **deploy** workflow is manually dispatched. Configure the
+`production` environment with the existing WIF and deployment secrets
+(`WIF_PROVIDER`, `DEPLOY_SA`, `GCP_PROJECT`, `MODEL_URI`) and set
+`MODEL_SHA256` to the full lowercase digest printed by `make export`.
+The workflow checks the artifact before building, verifies startup against
+the same digest, and tests both anonymous rejection and authenticated scoring.
+Only use model artifacts from your trusted build and release path.
 
-Cloud Run on the always-free tier, which is 2M requests, 180,000 vCPU-seconds
-and 360,000 GiB-seconds a month. At 512 MiB and roughly 1 ms of inference the
-binding constraint is request count, not compute.
+Local scoring remains available on loopback. Both endpoints cap domain length
+at 253 characters, the batch route defaults to 500 domains, and request bodies
+are capped at 1 MiB. Replay runs locally against the model file and can verify
+it with `NXS_MODEL_SHA256`.
 
-- `min_instance_count = 0` with `cpu_idle`. Pinning one warm instance costs about
-  $65 a month, so a scheduled ping every ten minutes keeps an instance alive
-  instead, at roughly 4,300 requests against a 2,000,000 allowance.
-- Artifact Registry cleanup keeps three versions. Free storage is 0.5 GB and
-  without a policy every CI build accumulates until it silently bills.
-- A one dollar budget alert as a tripwire, since any spend at all means
-  something is wrong.
-- Deploy authenticates through Workload Identity Federation. No long-lived
-  service account key exists in this repository.
-- CI fails the build above 900 MB, catching the failure mode where wheel
-  selection silently pulls 2.5 GB of CUDA into a CPU-only service.
+To measure HTTP p50, p95 and p99 latency, run:
 
----
+```bash
+python bench/http_latency.py http://127.0.0.1:8080 --batch-size 100 --concurrency 4
+```
+
+For Cloud Run, use the HTTPS service URL and pass an audience-appropriate
+ID token via `NXS_BENCH_TOKEN`. The tool measures direct HTTP requests and reports the first request separately.
+An idle run is required to study cold starts. The replay command reports total
+wall time on stderr, while the replay benchmark reports detection delay on the
+capture timeline. These measure different parts of the system.
 
 ## Data
 
-All public, reproducible from a clean checkout with no gated feed and no account.
+The public sources are pinned in `src/nxsentinel/data/sources.py`. A new
+build records their revisions and the preprocessing dependency version in
+`data/processed/dataset_report.json`. If a cached checkout differs, run
+`python scripts/build_dataset.py --force-download` to rebuild with the pinned
+sources. The historical figures below are retained as originally reported.
 
 | role | source | contents |
 |---|---|---|
@@ -287,7 +422,7 @@ cd nxdomain-sentinel
 
 make install        # CPU-only torch
 make data           # clones corpora, builds splits, ~2 min
-make test           # 42 tests
+make test           # unit and API tests
 make train          # 5 folds
 make eval           # scores every checkpoint
 make analyze        # paired per-family comparison
@@ -320,14 +455,19 @@ Thresholds are calibrated on validation and frozen before any test partition is
 touched. The leakage suite asserts that a deliberately constructed leak is
 *detected*, because a split bug does not crash, it quietly raises every score.
 
-## Known limitations
+## Pilot boundaries
 
-- Dictionary DGAs are undetected. This needs word-boundary or lexical features,
-  not more epochs.
-- Six epochs on one CPU core. Seen-family recall at 0.1% FPR is 0.5656, a floor.
-- Only three dictionary families exist in the corpus, so the style analysis is
-  underpowered.
-- Not deployed yet, so no end-to-end latency and no real cold-start number.
+- Replay is alert-only. Analysts use the case evidence to investigate.
+- Device grouping depends on where the DNS logs are collected and how
+  reliably the source identifier represents an endpoint.
+- The public corpus uses historical benign domain lists. Measure false
+  alerts and episode recall on current resolver data before relying on the
+  suggested thresholds.
+- Only three dictionary families appear in the original holdout corpus.
+  Evaluate the optional word-pair feature with additional labeled episodes
+  and benign lookalikes.
+- Published latency is in-process. The HTTP benchmark can measure the
+  deployed service, including startup and tail latency.
 
 ## Related work
 
