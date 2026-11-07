@@ -1,23 +1,41 @@
 # nxdomain-sentinel
 
-A domain threat classifier that is scored on malware families it has never seen,
-and that reports how much that costs.
+NXDOMAIN Sentinel is an open-source research prototype for investigating
+domain generation algorithm (DGA) activity in DNS logs. It scores failed
+lookups, groups the evidence by device and time window, and emits JSONL cases
+for analyst review. The benchmark compares alert policies on later labeled
+windows using thresholds set under a shared calibration alert budget.
 
-Published DGA detectors routinely report accuracy above 0.99. That number is
-close to meaningless, because it is measured on a random shuffle where every
-malware family appears in both training and test. It answers "can you recognise
-a family you were trained on", which a signature list already answers. The
-question a SOC has is whether the detector fires on a family that did not exist
-when the model was trained.
+[Try the synthetic benchmark](#try-the-synthetic-benchmark) ·
+[Replay DNS logs](#replay-dns-logs-for-triage) ·
+[Review the historical results](#headline-result)
 
-This repository measures that, and the answer is not flattering to anybody.
+## From DNS logs to an investigation case
 
-> **Status.** All five folds trained and evaluated. Service, container and
-> infrastructure written and tested. Not yet deployed to a live URL. Numbers
-> below come from a small model trained on one CPU core for six epochs, so they
-> are a floor rather than a ceiling.
+```mermaid
+flowchart TD
+    Logs["Timestamped DNS responses"] --> Group["Group by device and time window"]
+    Group --> Score["Score distinct NXDOMAIN names"]
+    Score --> Model["DGA score and novelty distance"]
+    Score --> Words["Optional word-pair signal"]
+    Model --> Rule["Apply device-window alert thresholds"]
+    Words --> Rule
+    Rule --> Case["Emit a JSONL investigation case"]
+```
 
----
+NXDOMAIN is the DNS response indicating that a queried name does not exist.
+The DGA score measures how generated a name looks. Novelty measures how far
+its embedding is from known DGA families and can be high even when its DGA
+score is low. The replay combines those signals with multiple distinct failed
+lookups from the same device. A case can include the flagged names, query
+counts, timestamps, and scores that prompted review.
+
+| Evidence | Status |
+|---|---|
+| Historical domain classifier | Five family-held-out folds evaluated on the public corpus |
+| Replay, scoring API, and benchmark | Exercised locally, including a replay with synthetic DNS traffic |
+| Benefit of novelty and word pairs on real networks | Pending a pilot with authorized resolver logs and reviewed case labels |
+| Private Cloud Run service | Deployment workflow prepared. Live verification pending |
 
 ## Development progress
 
@@ -53,7 +71,14 @@ This repository measures that, and the answer is not flattering to anybody.
 ## Headline result
 
 **Holding a family out costs a median 5.6 points of recall and a mean 14.9
-points**, at a fixed 0.1% false positive rate.
+points** across 25 families, using the threshold calibrated for a 0.1% false
+positive rate. This is the historical domain-level result.
+
+![Historical domain recall for the five largest family-holdout losses and three dictionary families](docs/figures/family-holdout-recall.svg)
+
+*Figure source* [Checked-in paired family results](artifacts/analysis.json).
+Vawtrak recall fell from 70.2% with the family in training to 1.5% with the
+family held out. The lower three rows show the dictionary-based families.
 
 That gap is measured by pairing. Every family is held out in exactly one fold
 and trained in the other four, so each family is compared against *itself*.
@@ -80,29 +105,26 @@ Most families transfer nearly free. A handful collapse completely. A single
 averaged number hides which is which, which is why the per-family table is the
 result and the mean is a footnote.
 
-## The finding I did not expect
+## Dictionary-based families
 
-**The classifier cannot detect dictionary-based DGAs at all, trained or not.**
+The historical character CNN had low recall on the three dictionary-based
+families even when those families were represented in training.
 
 suppobox, matsnu and gozi build domains by concatenating real words, so their
 output looks like ordinary registered names. Recall on suppobox is 0.0000 when
 held out, and 0.0028 when it is sitting *in the training set*. matsnu reaches
 0.1382 trained. gozi reaches 0.2244 trained.
 
-This is not a generalisation failure. At this capacity the character CNN has no
-representation for "real words in an order a human would not choose", and
-holding the family out costs almost nothing because there was nothing to lose.
-Any honest DGA detector should report dictionary families separately rather than
-letting 22 easy random-string families carry the average.
+The word-pair feature in the replay is an experiment motivated by this gap.
+The family-level results show which families warrant separate evaluation.
 
 ---
 
 ## The novelty gate
 
-A binary score answers "does this look generated". It cannot answer "is this a
-family I have seen before", and for a defender those are different questions. A
-confident hit on a known family is a signature match. A confident hit far from
-every known family is a candidate novel campaign.
+The classifier estimates whether a name resembles a generated domain. The
+novelty gate measures distance from the known-family clusters. Nearest-family
+similarity can support investigation alongside other evidence.
 
 The gate fits one Gaussian per known family in the classifier's penultimate
 space with a pooled, shrunk covariance, and scores Mahalanobis distance to the
@@ -111,17 +133,9 @@ nearest centroid. No OOD data is needed to fit it.
 **Median per-family AUC 0.7211. Fourteen of 25 families above 0.70, eight below
 0.50.**
 
-I initially reported this gate as performing at chance. That was wrong, and the
-error is worth recording because it was a measurement bug rather than a model
-bug. I was pooling all five held-out families in a fold into one AUC. Four of
-fold 1's five families are random-string families whose style is well
-represented in training, so they are genuinely *not* novel and the gate
-correctly said so. Averaging four correct "not novel" verdicts against one real
-novelty produced 0.5237, which reads as broken.
-
-Per family, fold 1 decomposes to suppobox 0.8802, pykspa 0.7354, tinba 0.3705,
-ranbyus 0.3213, emotet 0.3111. The pooled number was not a weak signal, it was
-the wrong measurement.
+Fold 1 had a pooled AUC of 0.5237. Per-family values ranged from 0.3111 on
+Emotet to 0.8802 on Suppobox. That spread shows how differently the gate
+ranked individual held-out families against the known-DGA reference.
 
 **The standalone gate adds a different signal.** In the offline Suppobox
 comparison, classifier recall was 0.0000 and gate AUC was 0.8802. The novelty
@@ -195,7 +209,35 @@ lookup in disguise.
 
 ---
 
-## What you can actually do with it
+## Usage
+
+### Try the synthetic benchmark
+
+From a clean checkout, this demo runs with Python and two small fixtures.
+
+```bash
+python scripts/benchmark_replay.py docs/examples/synthetic-windows.jsonl \
+  docs/examples/synthetic-labels.jsonl --calibration-end 300 --test-start 86400 \
+  --alerts-per-1000-device-days 500
+```
+
+The earlier windows set the thresholds. The later windows contain one
+fictional dictionary-DGA episode and two reviewed benign cases. The scripted
+DGA score misses the episode. The novelty signal catches it and also flags a
+benign lookalike.
+
+| Policy | Test alerts | Toy episodes found | Reviewed precision |
+|---|---:|---:|---:|
+| Behavior only | 0 | 0 of 1 | — |
+| CNN only | 1 | 0 of 1 | 0% |
+| Novelty only | 2 | 1 of 1 | 50% |
+| CNN + novelty | 3 | 1 of 1 | 33% |
+| CNN + novelty + behavior | 2 | 1 of 1 | 50% |
+
+The counts come from [synthetic device windows](docs/examples/synthetic-windows.jsonl)
+and [synthetic labels](docs/examples/synthetic-labels.jsonl). They illustrate
+how the benchmark reports detection and alert volume when policies are
+calibrated on one period and tested on a later one.
 
 ### Replay DNS logs for triage
 
@@ -305,20 +347,6 @@ seen one, and the reason is entirely about which families landed where. It is a
 compact demonstration of why a single held-out split cannot answer a
 generalisation question.
 
-### What it is not
-
-- **Not a replacement for a commercial feed.** No passive DNS, no registration
-  age, no hosting reputation, no TLS certificate signals. It reads the string
-  and nothing else.
-- **Blind to dictionary DGAs.** suppobox, matsnu and gozi pass through. If your
-  threat model includes them, this is not sufficient on its own.
-- **No IOC context.** It tells you a name looks generated. It does not tell you
-  which malware family is on which host or what to do next.
-- **Trained on a 2019-era corpus.** Benign naming conventions drift. Retrain
-  against a current top-domains list before trusting the false positive rate.
-
----
-
 ## Private deployment and latency
 
 Cloud Run uses authenticated invocation. Grant `roles/run.invoker` to
@@ -423,14 +451,19 @@ Thresholds are calibrated on validation and frozen before any test partition is
 touched. The leakage suite asserts that a deliberately constructed leak is
 *detected*, because a split bug does not crash, it quietly raises every score.
 
-## Known limitations
+## Pilot boundaries
 
-- Dictionary DGAs are undetected. This needs word-boundary or lexical features,
-  not more epochs.
-- Six epochs on one CPU core. Seen-family recall at 0.1% FPR is 0.5656, a floor.
-- Only three dictionary families exist in the corpus, so the style analysis is
-  underpowered.
-- Not deployed yet, so no end-to-end latency and no real cold-start number.
+- Replay is alert-only. Analysts use the case evidence to investigate.
+- Device grouping depends on where the DNS logs are collected and how
+  reliably the source identifier represents an endpoint.
+- The public corpus uses historical benign domain lists. Measure false
+  alerts and episode recall on current resolver data before relying on the
+  suggested thresholds.
+- Only three dictionary families appear in the original holdout corpus.
+  Evaluate the optional word-pair feature with additional labeled episodes
+  and benign lookalikes.
+- Published latency is in-process. The HTTP benchmark can measure the
+  deployed service, including startup and tail latency.
 
 ## Related work
 

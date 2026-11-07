@@ -1,0 +1,6 @@
+{"case_id":"a-day1","device_id":"a","window_start":0,"window_end":300,"distinct_nxdomain":9,"dga_names":3,"novelty_names":3,"combined_names":4,"model_version":"synthetic-demo","all_windows":true}
+{"case_id":"b-day1","device_id":"b","window_start":0,"window_end":300,"distinct_nxdomain":5,"dga_names":2,"novelty_names":2,"combined_names":2,"model_version":"synthetic-demo","all_windows":true}
+{"case_id":"c-day1","device_id":"c","window_start":0,"window_end":300,"distinct_nxdomain":5,"dga_names":2,"novelty_names":2,"combined_names":2,"model_version":"synthetic-demo","all_windows":true}
+{"case_id":"a-day2","device_id":"a","window_start":86400,"window_end":86700,"distinct_nxdomain":5,"dga_names":0,"novelty_names":4,"combined_names":4,"model_version":"synthetic-demo","all_windows":true}
+{"case_id":"b-day2","device_id":"b","window_start":86400,"window_end":86700,"distinct_nxdomain":5,"dga_names":3,"novelty_names":0,"combined_names":3,"model_version":"synthetic-demo","all_windows":true}
+{"case_id":"c-day2","device_id":"c","window_start":86400,"window_end":86700,"distinct_nxdomain":4,"dga_names":0,"novelty_names":4,"combined_names":4,"model_version":"synthetic-demo","all_windows":true}
