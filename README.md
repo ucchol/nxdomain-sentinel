@@ -40,6 +40,10 @@ This repository measures that, and the answer is not flattering to anybody.
   policies under one calibration budget, with later labeled device windows
   and an optional second network. No pilot performance is claimed yet.
 
+- **Dictionary-DGA experiment implemented.** An optional word segmentation
+  and word-pair signal participates in the same replay and alert-budget
+  benchmark. Its effect on real dictionary families still needs measurement.
+
 ## Headline result
 
 **Holding a family out costs a median 5.6 points of recall and a mean 14.9
@@ -241,6 +245,24 @@ false alerts per 1,000 device-days, episode counts by family and style, and
 median delay to the first alert among detected episodes that started during
 the test. Confirmed false alerts are a lower bound with partial review.
 The checked-in family-held-out domain results are separate from this replay.
+
+### Run the dictionary-DGA experiment
+
+Build a lexical artifact with a fixed, licensed English word list and a
+separate benign reference collected before the calibration and test windows.
+Both input files have one entry per line. Record their versions and hashes
+with the experiment.
+
+```bash
+python scripts/build_lexicon.py words.txt earlier-benign-domains.txt artifacts/lexicon.json
+python scripts/replay_dns.py dns.jsonl --lexicon artifacts/lexicon.json --all-windows > windows.jsonl
+```
+
+The feature segments the registrable label into words and flags adjacent pairs
+absent from the benign reference. Re-run the benchmark with these windows
+to compare the fused rule with and without the lexical signal. The report
+records the artifact SHA-256. Benign brands and compound names can trigger
+this signal, so review the added alerts alongside dictionary-family recall.
 
 ### Inspect novelty alongside DNS behavior
 

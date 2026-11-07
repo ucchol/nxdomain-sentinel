@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from nxsentinel.ops.lexical import LexicalSignal  # noqa: E402
 from nxsentinel.ops.replay import alert, events, windows  # noqa: E402
 from nxsentinel.serve.predictor import Predictor  # noqa: E402
 
@@ -21,6 +22,7 @@ def main() -> int:
     parser.add_argument("--window-seconds", type=int, default=300)
     parser.add_argument("--min-distinct", type=int, default=5)
     parser.add_argument("--min-suspicious", type=int, default=2)
+    parser.add_argument("--lexicon", type=Path, help="optional dictionary signal")
     parser.add_argument("--all-windows", action="store_true", help="emit every device window")
     args = parser.parse_args()
     if min(args.window_seconds, args.min_distinct, args.min_suspicious) < 1:
@@ -33,11 +35,12 @@ def main() -> int:
         parser.error("set NXS_REPLAY_HMAC_KEY to at least 32 random bytes encoded as hex")
 
     counts = Counter()
-    predictor = Predictor.load(args.model)
     try:
+        predictor = Predictor.load(args.model)
+        lexical, lexical_version = LexicalSignal.load(args.lexicon) if args.lexicon else (None, None)
         with args.input.open(encoding="utf-8") as source:
             for row in windows(events(source, secret, counts), predictor.predict_batch,
-                               seconds=args.window_seconds):
+                               seconds=args.window_seconds, lexical=lexical):
                 counts["windows"] += 1
                 flagged = alert(row, args.min_distinct, args.min_suspicious)
                 counts["alerts"] += flagged
@@ -45,9 +48,10 @@ def main() -> int:
                     record = {
                         **row, "alert": flagged, "model_version": predictor.version,
                         "experimental_novelty": not predictor.gate_is_trustworthy,
+                        "lexical_version": lexical_version,
                     }
                     print(json.dumps(record, allow_nan=False))
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"Replay failed: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(counts, sort_keys=True), file=sys.stderr)

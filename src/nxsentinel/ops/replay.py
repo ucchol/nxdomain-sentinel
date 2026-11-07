@@ -63,7 +63,7 @@ def events(
         yield Event(ts, device_id(secret, client), query, rcode == NXDOMAIN)
 
 
-def _score_window(groups, start, seconds, predict, batch_size, evidence_limit):
+def _score_window(groups, start, seconds, predict, batch_size, evidence_limit, lexical):
     names = sorted({query for _, failed in groups.values() for query in failed})
     scores = {}
     for offset in range(0, len(names), batch_size):
@@ -71,10 +71,15 @@ def _score_window(groups, start, seconds, predict, batch_size, evidence_limit):
         results = predict(batch)
         scores.update(zip(batch, results, strict=True))
 
+    lexical_hits = {
+        query for query, score in scores.items()
+        if lexical is not None and score.verdict != "unparseable" and lexical.flags(score.core)
+    }
     for host, (total, failed) in sorted(groups.items()):
         dga = []
         novel = []
         combined = []
+        lexical_combined = []
         unscored = 0
         for query in sorted(failed):
             verdict = scores[query]
@@ -87,8 +92,10 @@ def _score_window(groups, start, seconds, predict, batch_size, evidence_limit):
                 novel.append(query)
             if verdict.verdict == "dga" or verdict.above_novelty_threshold:
                 combined.append(query)
+            if verdict.verdict == "dga" or verdict.above_novelty_threshold or query in lexical_hits:
+                lexical_combined.append(query)
         case_id = f"{host}-{start}-{seconds}"
-        yield {
+        row = {
             "case_id": case_id,
             "device_id": host,
             "window_start": start,
@@ -108,10 +115,15 @@ def _score_window(groups, start, seconds, predict, batch_size, evidence_limit):
                     "novelty_score": scores[query].novelty_score,
                     "above_dga_threshold": scores[query].verdict == "dga",
                     "above_novelty_threshold": scores[query].above_novelty_threshold,
+                    **({"rare_word_pair": query in lexical_hits} if lexical is not None else {}),
                 }
-                for query in combined[:evidence_limit]
+                for query in lexical_combined[:evidence_limit]
             ],
         }
+        if lexical is not None:
+            row["lexical_names"] = len(failed.keys() & lexical_hits)
+            row["combined_lexical_names"] = len(lexical_combined)
+        yield row
 
 
 def windows(
@@ -120,6 +132,7 @@ def windows(
     seconds: int = 300,
     batch_size: int = 500,
     evidence_limit: int = 10,
+    lexical=None,
 ) -> Iterator[dict]:
     """Score each distinct failed name once per window, preserving host counts."""
     if seconds < 1 or batch_size < 1 or evidence_limit < 0:
@@ -129,7 +142,9 @@ def windows(
     for event in records:
         bucket = int(event.ts // seconds) * seconds
         if start is not None and bucket != start:
-            yield from _score_window(groups, start, seconds, predict, batch_size, evidence_limit)
+            yield from _score_window(
+                groups, start, seconds, predict, batch_size, evidence_limit, lexical
+            )
             groups.clear()
         start = bucket
         total, failed = groups.get(event.device_id, (0, Counter()))
@@ -137,8 +152,11 @@ def windows(
             failed[event.query] += 1
         groups[event.device_id] = total + 1, failed
     if start is not None:
-        yield from _score_window(groups, start, seconds, predict, batch_size, evidence_limit)
+        yield from _score_window(
+            groups, start, seconds, predict, batch_size, evidence_limit, lexical
+        )
 
 
 def alert(row: dict, min_distinct: int, min_suspicious: int) -> bool:
-    return row["distinct_nxdomain"] >= min_distinct and row["combined_names"] >= min_suspicious
+    hits = row.get("combined_lexical_names", row["combined_names"])
+    return row["distinct_nxdomain"] >= min_distinct and hits >= min_suspicious

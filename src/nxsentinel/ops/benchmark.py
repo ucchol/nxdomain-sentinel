@@ -17,13 +17,8 @@ def _device_days(rows):
     return len({(row["device_id"], row["window_start"] // 86400) for row in rows})
 
 
-def _scores(rows, method, min_distinct):
-    return [
-        row[METHODS[method]]
-        if method != "cnn_novelty_behavior" or row["distinct_nxdomain"] >= min_distinct
-        else 0
-        for row in rows
-    ]
+def _scores(rows, feature, min_distinct):
+    return [row[feature] if row["distinct_nxdomain"] >= min_distinct else 0 for row in rows]
 
 
 def _threshold(scores, budget):
@@ -115,6 +110,10 @@ def compare(
     model_versions = {row["model_version"] for row in calibration + test}
     if len(model_versions) != 1:
         raise ValueError("calibration and test must use the same model version")
+    lexical_versions = {row.get("lexical_version") for row in calibration + test}
+    if len(lexical_versions) != 1:
+        raise ValueError("calibration and test must use the same lexicon")
+    lexical_version = next(iter(lexical_versions))
     window_sizes = {row["window_end"] - row["window_start"] for row in calibration + test}
     if len(window_sizes) != 1 or min(window_sizes) <= 0:
         raise ValueError("calibration and test must use the same positive window size")
@@ -138,13 +137,18 @@ def compare(
         "calibration_alert_budget_per_1000_device_days": alert_budget,
         "calibration_alert_slots": slots,
         "model_version": next(iter(model_versions)),
+        "lexical_version": lexical_version,
         "methods": {},
     }
-    for method in METHODS:
-        scores = _scores(calibration, method, min_distinct)
+    methods = dict(METHODS)
+    if lexical_version is not None:
+        methods["cnn_novelty_behavior_lexical"] = "combined_lexical_names"
+    for method, feature in methods.items():
+        burst_threshold = min_distinct if method.startswith("cnn_novelty_behavior") else 0
+        scores = _scores(calibration, feature, burst_threshold)
         threshold = _threshold(scores, slots)
         alerts = [
-            row for row, score in zip(test, _scores(test, method, min_distinct), strict=True)
+            row for row, score in zip(test, _scores(test, feature, burst_threshold), strict=True)
             if score >= threshold
         ]
         report["methods"][method] = {
